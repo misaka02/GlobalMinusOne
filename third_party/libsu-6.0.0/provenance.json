@@ -1,0 +1,59 @@
+{
+  "version": "6.0.0",
+  "source": "https://github.com/topjohnwu/libsu/tree/6.0.0",
+  "repository": "https://jitpack.io/com/github/topjohnwu/libsu/",
+  "license": {
+    "bytes": 11357,
+    "sha256": "C71D239DF91726FC519C6EB72D318EC65820627232B2F796219E87DCF35D0AB4",
+    "url": "https://raw.githubusercontent.com/topjohnwu/libsu/6.0.0/LICENSE",
+    "file": "LICENSE",
+    "name": "Apache-2.0"
+  },
+  "artifacts": [
+    {
+      "filename": "core-6.0.0.aar",
+      "requestedUrl": "https://jitpack.io/com/github/topjohnwu/libsu/core/6.0.0/core-6.0.0.aar",
+      "pomSha256": "16BC770CE1A36C957027C55E150CAD31FA9A5B0B140FB6FCAA5FDE13E949E587",
+      "pomPackaging": "aar",
+      "fetchStatus": "HTTP 500",
+      "localAarPresent": true,
+      "name": "core",
+      "pom": "core-6.0.0.pom",
+      "sha1Status": "HTTP 500",
+      "localAar": "third_party/libsu-6.0.0/local-build/output/libsu-core-6.0.0-locally-built.aar",
+      "localAarBytes": 40267,
+      "localAarSha256": "BED807354AD2DFFCD2760A6A2E0CC935969AC9CCA85F806FE107D17BAFFF6B98"
+    },
+    {
+      "localAarPresent": true,
+      "pomPackaging": "aar",
+      "pom": "service-6.0.0.pom",
+      "pomSha256": "5837C29B3E53270F237306C3E34A1ABFB26E000E76274D49EEF785E9684B0CA6",
+      "filename": "service-6.0.0.aar",
+      "pomCompileDependency": "com.github.topjohnwu.libsu:core:6.0.0",
+      "name": "service",
+      "fetchStatus": "HTTP 500",
+      "requestedUrl": "https://jitpack.io/com/github/topjohnwu/libsu/service/6.0.0/service-6.0.0.aar",
+      "sha1Status": "HTTP 500",
+      "localAar": "third_party/libsu-6.0.0/local-build/output/libsu-service-6.0.0-locally-built.aar",
+      "localAarBytes": 43882,
+      "localAarSha256": "7E4F8512FF9583C5FF860364152397B4959AE76ECB915C48E2AD574828E65FB1"
+    }
+  ],
+  "officialJitpackBuildLog": "build/v2.4.5-audit/source-inspection/libsu-jitpack-build.log",
+  "officialSourceArchive": "build/v2.4.5-audit/source-inspection/libsu-6.0.0-source.zip",
+  "sourceArchiveBytes": 206045,
+  "sourceArchiveSha256": "6090C040D561D181E64A2688A6D5BC820EF3BE1B1DBFA59C081821C81A85F9CB",
+  "alternateSourceUsed": false,
+  "jitpackBuildLogOutcome": "Build tool exit 0; reports 19 nonfatal Javadoc reference-not-found diagnostics and missing lint-resource reports",
+  "localBuild": {
+    "status": "successful",
+    "build": "Gradle 9.1.0 offline; AGP 9.0.1; Android SDK compileSdk 36; release AAR",
+    "sourceCodeModified": true,
+    "localPatch": "third_party/libsu-6.0.0/local-build/root-session-retry.patch",
+    "localPatchSha256": "4E2682513AFD84A7A7BC4566C86D111544B110ECDC2314822C64349871A7A5EB",
+    "buildLog": "build/v2.4.5-audit/source-inspection/libsu-local-build-attempt5.log",
+    "mainJarSha256": "AE7FDB8B70BD2C1CC2C27043E985F8DC5CFFF2CB9142A1576DCDBC889763EF7B",
+    "mainJarUnchanged": true
+  }
+}

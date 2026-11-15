@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Left Edge Trigger Bar -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M24,34 C24,31.8 25.8,30 28,30 C30.2,30 32,31.8 32,34 L32,74 C32,76.2 30.2,78 28,78 C25.8,78 24,76.2 24,74 Z" />
+    <!-- Top Dashboard Card -->
+    <path
+        android:fillColor="#F8FAFC"
+        android:pathData="M38,30 L78,30 C81.3,30 84,32.7 84,36 L84,48 C84,51.3 81.3,54 78,54 L38,54 C35.8,54 34,52.2 34,50 L34,34 C34,31.8 35.8,30 38,30 Z" />
+    <!-- Bottom Left Card -->
+    <path
+        android:fillColor="#94A3B8"
+        android:pathData="M38,58 L56,58 C58.2,58 60,59.8 60,62 L60,74 C60,76.2 58.2,78 56,78 L38,78 C35.8,78 34,76.2 34,74 L34,62 C34,59.8 35.8,58 38,58 Z" />
+    <!-- Bottom Right Accent "-1" Badge Card -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M66,58 L78,58 C81.3,58 84,60.7 84,64 L84,72 C84,75.3 81.3,78 78,78 L66,78 C63.8,78 62,76.2 62,74 L62,62 C62,59.8 63.8,58 66,58 Z" />
+    <!-- Minus sign inside top card -->
+    <path
+        android:fillColor="#0284C7"
+        android:pathData="M42,40 L54,40 L54,44 L42,44 Z" />
+    <!-- "1" sign inside top card -->
+    <path
+        android:fillColor="#0F172A"
+        android:pathData="M62,36 L68,36 L68,48 L64,48 L64,39 L61,39 Z" />
+</vector>

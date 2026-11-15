@@ -1,0 +1,20 @@
+{
+  "artifact": "com.google.re2j:re2j:1.8",
+  "jarPath": "app/libs/re2j-1.8.jar",
+  "bytes": 114335,
+  "sourceUrl": "https://repo.maven.apache.org/maven2/com/google/re2j/re2j/1.8/re2j-1.8.jar",
+  "pomUrl": "https://repo.maven.apache.org/maven2/com/google/re2j/re2j/1.8/re2j-1.8.pom",
+  "upstreamSha1Url": "https://repo.maven.apache.org/maven2/com/google/re2j/re2j/1.8/re2j-1.8.jar.sha1",
+  "upstreamSha1": "12c25e923e9e4fb1575a7640a2698745c6f19a94",
+  "verifiedSha1": "12c25e923e9e4fb1575a7640a2698745c6f19a94",
+  "sha256": "7B52C72156DD7F98B3237A5B35C1D34FBA381B21048C89208913AD80A45DFBD7",
+  "pomPath": "third_party/re2j-1.8/re2j-1.8.pom",
+  "pomSha256": "DF62699335CD46FC465F4C03B8C581D3D507792212D27B65ADB923B4C27DE4E7",
+  "licenseUrl": "https://github.com/google/re2j/blob/re2j-1.8/LICENSE",
+  "licensePath": "third_party/re2j-1.8/LICENSE",
+  "licenseSha256": "26A6133577CC8E48D7C002AC4D4A554786E7C0E1732E10F2DB205E5E494C411B",
+  "downloadedAt": "2026-10-20T20:15:32.7551624+08:00",
+  "networkSource": "Task-specified official Maven Central HTTPS artifact/POM and upstream Google RE2/J tag license URLs",
+  "distributionLicenseAsset": "app/src/main/assets/licenses/re2j-1.8-LICENSE.txt",
+  "distributionLicenseSha256": "26A6133577CC8E48D7C002AC4D4A554786E7C0E1732E10F2DB205E5E494C411B"
+}

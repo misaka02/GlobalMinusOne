@@ -1,0 +1,40 @@
+{
+  "artifactOrigin": "Locally rebuilt from official topjohnwu/libsu tag 6.0.0 source with the recorded root-session-retry local patch; not publisher-signed or a downloaded JitPack AAR",
+  "sourceUrl": "https://github.com/topjohnwu/libsu/tree/6.0.0",
+  "sourceArchive": "build/v2.4.5-audit/source-inspection/libsu-6.0.0-source.zip",
+  "sourceArchiveSha256": "6090C040D561D181E64A2688A6D5BC820EF3BE1B1DBFA59C081821C81A85F9CB",
+  "build": "Gradle 9.1.0 offline; AGP 9.0.1; Android SDK compileSdk 36; release AAR",
+  "kotlinPluginAlignment": "Compose and serialization plugin 2.3.20 declared apply false to align AGP builtin Kotlin Gradle plugin dependencies with available cache",
+  "sourceCodeModified": true,
+  "upstreamServiceMainJar": {
+    "source": "service/src/main/assets/main.jar",
+    "bytes": 3656,
+    "sourceSha256": "AE7FDB8B70BD2C1CC2C27043E985F8DC5CFFF2CB9142A1576DCDBC889763EF7B",
+    "packagedSha256": "AE7FDB8B70BD2C1CC2C27043E985F8DC5CFFF2CB9142A1576DCDBC889763EF7B",
+    "identical": true
+  },
+  "artifacts": [
+    {
+      "path": "libsu-core-6.0.0-locally-built.aar",
+      "bytes": 40267,
+      "sha256": "BED807354AD2DFFCD2760A6A2E0CC935969AC9CCA85F806FE107D17BAFFF6B98"
+    },
+    {
+      "path": "libsu-service-6.0.0-locally-built.aar",
+      "bytes": 43882,
+      "sha256": "7E4F8512FF9583C5FF860364152397B4959AE76ECB915C48E2AD574828E65FB1"
+    }
+  ],
+  "buildLog": "build/v2.4.5-audit/source-inspection/libsu-local-build-attempt5.log",
+  "localPatch": {
+    "path": "third_party/libsu-6.0.0/local-build/root-session-retry.patch",
+    "sha256": "4E2682513AFD84A7A7BC4566C86D111544B110ECDC2314822C64349871A7A5EB",
+    "modifiedFiles": [
+      "core/src/main/java/com/topjohnwu/superuser/internal/MainShell.java",
+      "service/src/main/java/com/topjohnwu/superuser/internal/RootServiceManager.java",
+      "service/src/main/java/com/topjohnwu/superuser/ipc/RootService.java"
+    ],
+    "summary": "Reset MainShell initialization in finally; cancel only matching failed/timed-out RootService launch tasks and clear matching pending binds so retries can proceed safely."
+  },
+  "builtAt": "2026-10-21T15:20:02.6797750+08:00"
+}

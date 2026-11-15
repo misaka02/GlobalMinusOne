@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The IO layer validates the canonical shared-storage boundary before producing a URI. -->
+    <external-path name="shared_files" path="." />
+    <files-path name="text_original_recovery" path="text-save-recovery/" />
+    <cache-path name="region_screenshots" path="region_screenshots/" />
+</paths>

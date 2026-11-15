@@ -1,0 +1,17 @@
+--- a/core/src/main/java/com/topjohnwu/superuser/internal/MainShell.java
++++ b/core/src/main/java/com/topjohnwu/superuser/internal/MainShell.java
+@@ -51,8 +51,12 @@ public final class MainShell {
+             isInitMain = true;
+             if (mainBuilder == null)
+                 mainBuilder = new BuilderImpl();
+-            shell = mainBuilder.build();
+-            isInitMain = false;
++            try {
++                shell = mainBuilder.build();
++            } finally {
++                // Keep explicit retries possible after a denied or timed-out shell.
++                isInitMain = false;
++            }
+         }
+         return shell;
+     }

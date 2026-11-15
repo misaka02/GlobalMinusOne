@@ -1,0 +1,178 @@
+--- a/core/src/main/java/com/topjohnwu/superuser/internal/MainShell.java
++++ b/core/src/main/java/com/topjohnwu/superuser/internal/MainShell.java
+@@ -50,8 +50,12 @@
+             isInitMain = true;
+             if (mainBuilder == null)
+                 mainBuilder = new BuilderImpl();
+-            shell = mainBuilder.build();
+-            isInitMain = false;
++            try {
++                shell = mainBuilder.build();
++            } finally {
++                // Keep explicit retries possible after a denied or timed-out shell.
++                isInitMain = false;
++            }
+         }
+         return shell;
+     }
+--- a/service/src/main/java/com/topjohnwu/superuser/internal/RootServiceManager.java
++++ b/service/src/main/java/com/topjohnwu/superuser/internal/RootServiceManager.java
+@@ -52,6 +52,7 @@
+ import java.io.File;
+ import java.io.FileOutputStream;
+ import java.io.InputStream;
++import java.io.IOException;
+ import java.io.OutputStream;
+ import java.nio.charset.StandardCharsets;
+ import java.util.ArrayList;
+@@ -141,6 +142,7 @@
+     private int flags = 0;
+ 
+     private final List<BindTask> pendingTasks = new ArrayList<>();
++    private final Map<Integer, LaunchTask> launches = new ArrayMap<>();
+     private final Map<ServiceKey, RemoteServiceRecord> services = new ArrayMap<>();
+     private final Map<ServiceConnection, ConnectionRecord> connections = new ArrayMap<>();
+ 
+@@ -284,19 +286,75 @@
+     public Shell.Task createBindTask(Intent intent, Executor executor, ServiceConnection conn) {
+         ServiceKey key = bindInternal(intent, executor, conn);
+         if (key != null) {
+-            pendingTasks.add(() -> bindInternal(intent, executor, conn) == null);
++            pendingTasks.add(new BindTask(intent, executor, conn, key));
+             int mask = key.isDaemon() ? DAEMON_EN_ROUTE : REMOTE_EN_ROUTE;
+             if ((flags & mask) == 0) {
+-                flags |= mask;
+                 String action = key.isDaemon() ? CMDLINE_START_DAEMON : CMDLINE_START_SERVICE;
+-                return startRootProcess(key.getName(), action);
++                try {
++                    LaunchTask task = new LaunchTask(mask, startRootProcess(key.getName(), action));
++                    launches.put(mask, task);
++                    flags |= mask;
++                    return task;
++                } catch (RuntimeException e) {
++                    failPending(key.isDaemon());
++                    throw e;
++                }
+             }
+         }
+         return null;
++    }
++
++    /** Cancel only the matching launch attempt; never discard a newer attempt or another mode. */
++    public void cancelBindTask(Shell.Task task) {
++        if (!(task instanceof LaunchTask)) return;
++        LaunchTask launch = (LaunchTask) task;
++        launch.cancelled = true;
++        UiThreadHandler.run(() -> {
++            if (launches.get(launch.mask) != launch) return;
++            launches.remove(launch.mask);
++            flags &= ~launch.mask;
++            failPending(launch.mask == DAEMON_EN_ROUTE);
++        });
++    }
++
++    private void failPending(boolean daemon) {
++        List<BindTask> failed = new ArrayList<>();
++        for (int i = pendingTasks.size() - 1; i >= 0; --i) {
++            BindTask bind = pendingTasks.get(i);
++            if (bind.key.isDaemon() == daemon) {
++                pendingTasks.remove(i);
++                failed.add(bind);
++            }
++        }
++        for (BindTask bind : failed) {
++            try {
++                bind.executor.execute(() -> {
++                    if (Build.VERSION.SDK_INT >= 28) bind.conn.onNullBinding(bind.key.getName());
++                    else bind.conn.onServiceDisconnected(bind.key.getName());
++                });
++            } catch (RuntimeException e) { Utils.err(TAG, e); }
++        }
++    }
++
++    private final class LaunchTask implements Shell.Task {
++        final int mask;
++        final Shell.Task delegate;
++        volatile boolean cancelled;
++        LaunchTask(int mask, Shell.Task delegate) { this.mask = mask; this.delegate = delegate; }
++        @Override public void run(OutputStream stdin, InputStream stdout, InputStream stderr) throws IOException {
++            if (cancelled) return;
++            try { delegate.run(stdin, stdout, stderr); }
++            catch (IOException | RuntimeException e) { cancelBindTask(this); throw e; }
++        }
++        @Override public void shellDied() { cancelBindTask(this); }
+     }
+ 
+     public void unbind(@NonNull ServiceConnection conn) {
+         enforceMainThread();
++
++        for (int i = pendingTasks.size() - 1; i >= 0; --i) {
++            if (pendingTasks.get(i).conn == conn) pendingTasks.remove(i);
++        }
+ 
+         ConnectionRecord r = connections.remove(conn);
+         if (r != null) {
+@@ -448,13 +506,15 @@
+                 if (intent.getBooleanExtra(INTENT_DAEMON_KEY, false)) {
+                     mDaemon = p;
+                     flags &= ~DAEMON_EN_ROUTE;
++                    launches.remove(DAEMON_EN_ROUTE);
+                 } else {
+                     mRemote = p;
+                     flags &= ~REMOTE_EN_ROUTE;
++                    launches.remove(REMOTE_EN_ROUTE);
+                 }
+-                for (int i = pendingTasks.size() - 1; i >= 0; --i) {
+-                    if (pendingTasks.get(i).run()) {
+-                        pendingTasks.remove(i);
++                for (BindTask pending : new ArrayList<>(pendingTasks)) {
++                    if (pendingTasks.contains(pending) && pending.run()) {
++                        pendingTasks.remove(pending);
+                     }
+                 }
+             } catch (RemoteException e) {
+@@ -463,8 +523,15 @@
+         }
+     }
+ 
+-    private interface BindTask {
+-        boolean run();
++    private final class BindTask {
++        final Intent intent;
++        final Executor executor;
++        final ServiceConnection conn;
++        final ServiceKey key;
++        BindTask(Intent intent, Executor executor, ServiceConnection conn, ServiceKey key) {
++            this.intent = intent; this.executor = executor; this.conn = conn; this.key = key;
++        }
++        boolean run() { return bindInternal(intent, executor, conn) == null; }
+     }
+ 
+     private interface Predicate {
+--- a/service/src/main/java/com/topjohnwu/superuser/ipc/RootService.java
++++ b/service/src/main/java/com/topjohnwu/superuser/ipc/RootService.java
+@@ -146,6 +146,11 @@
+         return RootServiceManager.getInstance().createBindTask(intent, executor, conn);
+     }
+ 
++    /** Local patch: abandon a failed/timed-out launch without retrying or starting a shell. */
++    public static void cancelBindTask(@NonNull Shell.Task task) {
++        RootServiceManager.getInstance().cancelBindTask(task);
++    }
++
+     /**
+      * Unbind from a root service.
+      * @param conn the connection interface previously supplied to
+@@ -195,8 +200,11 @@
+                 Shell shell = Shell.getShell();
+                 if (shell.isRoot()) {
+                     shell.execTask(task);
++                } else {
++                    cancelBindTask(task);
+                 }
+-            } catch (IOException e) {
++            } catch (IOException | RuntimeException e) {
++                cancelBindTask(task);
+                 Utils.err(e);
+             }
+         };

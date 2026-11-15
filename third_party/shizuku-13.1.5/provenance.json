@@ -1,0 +1,61 @@
+{
+  "version": "13.1.5",
+  "source": "https://github.com/RikkaApps/Shizuku-API",
+  "repository": "https://repo.maven.apache.org/maven2/dev/rikka/shizuku/",
+  "license": {
+    "bytes": 1062,
+    "sha256": "64870037F294B6F2B75C8EBE77CC0702ACB3B64F86B4B0E58BF8558525303686",
+    "url": "https://github.com/RikkaApps/Shizuku-API/blob/master/LICENSE",
+    "file": "LICENSE",
+    "name": "MIT"
+  },
+  "artifacts": [
+    {
+      "bytes": 24652,
+      "filename": "api-13.1.5.aar",
+      "sha256": "4DEF9BDE498EF8626614C2FC5DB9AF4749C86F16F6C33E3F5658D35E70BAB59B",
+      "upstreamSha1": "1f760c56493bdbc01462930e75bb325033b36fe2",
+      "name": "api",
+      "url": "https://repo.maven.apache.org/maven2/dev/rikka/shizuku/api/13.1.5/api-13.1.5.aar",
+      "pom": "api-13.1.5.pom"
+    },
+    {
+      "bytes": 7056,
+      "filename": "provider-13.1.5.aar",
+      "sha256": "B0F18CD9812464EC171C53CAC93A819FE411718A3965C311F01EB4DE265381B3",
+      "upstreamSha1": "4135b99cae9362fe2f63380230d04a9bcba9be3f",
+      "name": "provider",
+      "url": "https://repo.maven.apache.org/maven2/dev/rikka/shizuku/provider/13.1.5/provider-13.1.5.aar",
+      "pom": "provider-13.1.5.pom"
+    },
+    {
+      "bytes": 23673,
+      "filename": "aidl-13.1.5.aar",
+      "sha256": "33FE7191CDD69FCB66D649264F3B0C47ACB2F3D6343AFC05B98DBBFF6F221963",
+      "upstreamSha1": "457504c277d796adea698b80b4e765f98dd0799a",
+      "name": "aidl",
+      "url": "https://repo.maven.apache.org/maven2/dev/rikka/shizuku/aidl/13.1.5/aidl-13.1.5.aar",
+      "pom": "aidl-13.1.5.pom"
+    },
+    {
+      "bytes": 2614,
+      "filename": "shared-13.1.5.aar",
+      "sha256": "4659642C9339BE0A26E9C65BB8648F7AD6D8F4A465F557993CCBC78802381635",
+      "upstreamSha1": "8c4e73ce466cd27aff10565d2ec49809c258f974",
+      "name": "shared",
+      "url": "https://repo.maven.apache.org/maven2/dev/rikka/shizuku/shared/13.1.5/shared-13.1.5.aar",
+      "pom": "shared-13.1.5.pom"
+    },
+    {
+      "sha256": "97DC45AFEFE3A1E421DA42B8B6E9F90491477C45FC6178203E3A5E8A05EE8553",
+      "url": "https://dl.google.com/dl/android/maven2/androidx/annotation/annotation/1.3.0/annotation-1.3.0.jar",
+      "upstreamSha1": "021f49f5f9b85fc49de712539f79123119740595",
+      "bytes": 31705,
+      "filename": "annotation-1.3.0.jar",
+      "name": "androidx.annotation"
+    }
+  ],
+  "dependencySummary": "api: compile aidl, shared; runtime annotation; provider: runtime api, annotation; aidl: none; shared: runtime aidl, annotation; annotation: no further dependencies listed",
+  "sha1SidecarsVerified": true,
+  "aarZipChecksPassed": true
+}

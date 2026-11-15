@@ -1,0 +1,5 @@
+libsu 6.0.0 is locally built from the official topjohnwu/libsu tag source; these AARs are not publisher-signed or downloaded JitPack artifacts.
+
+Local patch: third_party/libsu-6.0.0/local-build/root-session-retry.patch modifies MainShell, RootServiceManager, and RootService. It resets shell-initialization state in finally and cancels matching failed/timed-out RootService launch tasks so retries can proceed safely.
+
+The upstream service/src/main/assets/main.jar was preserved byte-for-byte (SHA-256 AE7FDB8B70BD2C1CC2C27043E985F8DC5CFFF2CB9142A1576DCDBC889763EF7B).
