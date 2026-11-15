@@ -743,7 +743,7 @@ private fun MainHomeScreen(
             MainMenuItemRow(
                 icon = IconInfo,
                 title = "关于",
-                subtitle = "开发者、开源仓库、AI 开发说明与隐私政策",
+                subtitle = "项目来源、AI 开发说明、开发者与开源仓库",
                 onClick = { onNavigate("ABOUT") }
             )
         }
@@ -965,7 +965,7 @@ private fun AboutSettingsScreen(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "AI 开发声明：本项目主要由 AI 辅助与主导完成架构设计、代码实现及测试（AI-Developed / AI-Assisted），使用 Kotlin + Jetpack Compose 构建，遵循 Apache License 2.0 协议开源。",
+                            text = "项目来源：本开源项目灵感与设计延续自已停更的原 Android 应用《全局负一屏》，由 $PROJECT_DEVELOPER 发起并主要由 AI 辅助与主导完成架构重构、代码实现与测试（AI-Developed / AI-Assisted），基于 Kotlin + Jetpack Compose 独立实现并遵循 Apache License 2.0 协议开源；与原闭源版本及原作者无隶属或官方延续关系。",
                             fontSize = 13.sp,
                             lineHeight = 19.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1115,7 +1115,7 @@ private fun AboutSettingsScreen(
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     item {
                         Text(
-                            text = "本应用以 Apache License 2.0 协议开源（主要由 AI 辅助与主导开发，由 $PROJECT_DEVELOPER 维护发布，项目地址：$PROJECT_REPO_URL），感谢并声明所使用第三方开源组件：",
+                            text = "本应用以 Apache License 2.0 协议开源，灵感与设计延续自已停更的原《全局负一屏》，由 AI 辅助与主导独立重构并由 $PROJECT_DEVELOPER 维护发布（项目地址：$PROJECT_REPO_URL）。感谢并声明所使用第三方开源组件：",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurface
                         )

@@ -1,10 +1,14 @@
 # GlobalMinusOne · 全局负一屏
 
+> **项目来源说明 / Project Origin**  
+> 本开源项目灵感与核心交互理念源自**已停更的原 Android 应用《全局负一屏》**（原闭源软件），为延续该工具在现代 Android 系统（`targetSdk 36`）上的可用性与可定制体验而独立重新实现并开源发布。本项目与原闭源软件、原作者及其历史分销渠道无任何隶属、授权或官方延续关系。
+
 > **AI 开发声明 / AI-Developed Notice**  
 > 本项目主要由 **AI 辅助与主导完成架构设计、功能开发、重构与测试编写（AI-Developed / AI-Assisted Project）**，由开发者维护并开源发布。请在启用无障碍、悬浮窗或 Root/Shizuku 能力前按需审阅相关源码。
 
 - **开发者**：[`misaka02`](https://github.com/misaka02)
 - **项目地址**：[`https://github.com/misaka02/GlobalMinusOne`](https://github.com/misaka02/GlobalMinusOne)
+- **下载发布包**：[`Releases`](https://github.com/misaka02/GlobalMinusOne/releases)
 - **问题反馈**：[`https://github.com/misaka02/GlobalMinusOne/issues`](https://github.com/misaka02/GlobalMinusOne/issues)
 - **开源协议**：[Apache License 2.0](LICENSE)
 
@@ -43,12 +47,12 @@
 
 ## 云端自动编译与本地构建
 
-### 云端 CI（GitHub Actions）
-每次向 `main` 分支推送代码或提交 Pull Request 时，GitHub Actions（[`.github/workflows/android-ci.yml`](.github/workflows/android-ci.yml)）会自动在云端执行：
+### 云端 CI 与自动发布（GitHub Actions）
+每次向 `main` 分支推送代码、提交 Pull Request 或推送 `v*` 版本标签时，GitHub Actions（[`.github/workflows/android-ci.yml`](.github/workflows/android-ci.yml)）会自动在云端执行：
 - JVM 全量单元测试（`:app:testDebugUnitTest`）
 - AndroidTest Kotlin 编译检查（`:app:compileDebugAndroidTestKotlin`）
 - Android Lint 静态检查（`:app:lintDebug`）
-- 构建 Debug 与 Release APK（`:app:assembleDebug`、`:app:assembleRelease`）并作为 Actions Artifact 上传。
+- 构建 Debug 与 Release APK（`:app:assembleDebug`、`:app:assembleRelease`）并上传 Workflow Artifacts；当推送 `v*` 标签时，自动发布对应版本的 [GitHub Release](https://github.com/misaka02/GlobalMinusOne/releases) 并附带 `release` / `debug` APK 与 `SHA256SUMS.txt`。
 
 ### 本地从源码构建
 - **JDK**: Java 17
