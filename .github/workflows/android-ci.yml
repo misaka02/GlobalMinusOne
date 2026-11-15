@@ -8,6 +8,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+env:
+  CI_GRADLE_JVMARGS: -Dorg.gradle.jvmargs=-Xmx3072m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8
+
 jobs:
   verify-and-build:
     runs-on: ubuntu-latest
@@ -28,16 +31,19 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run JVM unit tests
-        run: ./gradlew testDebugUnitTest --no-daemon --console=plain
+        run: ./gradlew testDebugUnitTest --no-daemon --console=plain "${{ env.CI_GRADLE_JVMARGS }}"
 
       - name: Compile AndroidTest Kotlin
-        run: ./gradlew compileDebugAndroidTestKotlin --no-daemon --console=plain
+        run: ./gradlew compileDebugAndroidTestKotlin --no-daemon --console=plain "${{ env.CI_GRADLE_JVMARGS }}"
 
       - name: Run Android Lint
-        run: ./gradlew lintDebug --no-daemon --console=plain
+        run: ./gradlew lintDebug --no-daemon --console=plain "${{ env.CI_GRADLE_JVMARGS }}"
 
-      - name: Assemble Debug and Release APKs
-        run: ./gradlew assembleDebug assembleRelease --no-daemon --console=plain
+      - name: Assemble Debug APK
+        run: ./gradlew assembleDebug --no-daemon --console=plain "${{ env.CI_GRADLE_JVMARGS }}"
+
+      - name: Assemble Release APK
+        run: ./gradlew assembleRelease --no-daemon --console=plain "${{ env.CI_GRADLE_JVMARGS }}"
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
