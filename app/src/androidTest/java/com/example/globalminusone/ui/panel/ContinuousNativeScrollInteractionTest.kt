@@ -71,7 +71,7 @@ class ContinuousNativeScrollInteractionTest {
         val before = repo.state.value
         compose.setContent {
             SettingsTheme(false) {
-                Box(Modifier.size(320.dp, 420.dp)) { ThemeSettingsScreen(repo, {}) }
+                Box(Modifier.size(320.dp, 420.dp)) { ThemeSettingsScreen(repository = repo, onBack = {}) }
             }
         }
         assertRepeatedScrolling()

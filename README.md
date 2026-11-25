@@ -18,13 +18,14 @@
 
 ## 核心特性
 
-- **双模式多页画布与嵌套容器**：支持线性流（Linear）、自由网格画布（Free）与规整网格（Grid），支持多页首尾循环翻页、容器盒及弹窗式文件夹嵌套；针对单工具窄弹窗（如 1 列竖排亮度/音量条）支持自适应极简顶栏收纳与 `92–1200dp` 宽度定制。
-- **多样化系统卡片与快捷工具**：
-  - 应用抽屉、应用快捷键、自定义 Intent、网站链接、文件快捷入口；
-  - 亮度 / 音量滑块（横/竖排）、Wi-Fi / 蓝牙 / 手电筒等状态磁贴；
-  - 待办清单、剪贴板记录、网格相框（Photo Cube）、系统桌面小部件（AppWidget）承载；
-  - 面板内浮动文件浏览与文本/音视频/图片预览、内置轻量 WebView 浏览器（支持多标签与无痕 Profile 隔离清理）。
-- **边缘手势与触发方式**：支持左/右/双侧/顶部/底部边缘滑动、二次防误触滑动及悬浮球（7 向手势绑定）与快速设置磁贴。
+- **临界阻尼物理动效**：侧边唤出跟手弹簧、速度感知 VSYNC 驱动与多页首尾循环翻页，支持自定义动画时长（含极速/零动画瞬切），并接入系统 `onTrimMemory` 位图缓存回收。
+- **三布局多页画布与嵌套容器**：支持线性流（Linear）、自由网格画布（Free）与规整网格（Grid），支持容器盒及弹窗式文件夹嵌套、自适应极简顶栏与 `92–1200dp` 宽度定制。
+- **12 类「单图标弹出」浮舱 & 多样卡片**：
+  - 支持单图标弹出的功能/内容卡片：应用抽屉、键盘快启、最近运行、亮度条、音量条、剪贴板、便签、桌面小部件（`AppWidget`）、电池详情、单图卡片、魔方相册（`Photo Cube`）、一言；
+  - 以及应用快捷方式、自定义 Intent、网站链接、文件快捷入口、Wi-Fi / 蓝牙 / 手电筒等状态磁贴与实时统计；
+  - 面板内浮动文件浏览与文本/音视频/图片预览、内置轻量 WebView 浏览器（支持多标签与无痕 Profile 隔离清理），以及可选本地识屏工具。
+- **桌面小部件安全托管**：集成防崩溃 `AppWidgetHostView`、子列表/外层滚动方向仲裁与长按透传编辑。
+- **边缘手势与悬浮球**：支持左/右/双侧/顶部/底部边缘滑动、二次防误触滑动、悬浮球 7 向手势绑定与快速设置磁贴。
 - **备份与迁移**：原生配置快照（`state_json_v5` / ZIP 备份导入导出）及 Panels 备份结构兼容导入。
 
 ---
@@ -40,19 +41,21 @@
 | `QUERY_ALL_PACKAGES` | 用于构建本地应用抽屉与快捷启动索引。 |
 | `MANAGE_EXTERNAL_STORAGE` / SAF | 可选；面板内嵌文件浏览器浏览与管理本机文件（未授全局管理权限时也可单独授权 SAF 目录）。 |
 | `WRITE_SETTINGS` / `MODIFY_AUDIO_SETTINGS` | 仅用于面板内亮度条与音量条卡片调节系统数值。 |
-| `INTERNET` | 仅用于内置浏览器打开用户主动输入的网址，无后台遥测、崩溃上报或远程配置请求。 |
-| `moe.shizuku.manager.permission.API_V23` | 可选；仅在用户主动触发需 Shizuku 权限的系统/Shell 操作时请求。 |
+| `INTERNET` | 仅用于内置浏览器打开用户主动输入的网址，或用户手动配置的 OCR/大模型/在线词库请求，无后台遥测、崩溃上报或账号体系。 |
+| `moe.shizuku.manager.permission.API_V23` | 可选；仅在用户主动触发需 Shizuku 权限的系统/Shell/识屏操作时请求。 |
 
 ---
 
-## 云端自动编译与本地构建
+## 云端自动构建与本地编译
 
-### 云端 CI 与自动发布（GitHub Actions）
-每次向 `main` 分支推送代码、提交 Pull Request 或推送 `v*` 版本标签时，GitHub Actions（[`.github/workflows/android-ci.yml`](.github/workflows/android-ci.yml)）会自动在云端执行：
-- JVM 全量单元测试（`:app:testDebugUnitTest`）
+### GitHub Actions（构建与静态检查）
+每次向 `main` 分支推送代码或提交 Pull Request 时，GitHub Actions（[`.github/workflows/android-ci.yml`](.github/workflows/android-ci.yml)）会自动在云端执行：
+- JVM 全量单元测试（`:app:testDebugUnitTest`，`1,100+` 项）
 - AndroidTest Kotlin 编译检查（`:app:compileDebugAndroidTestKotlin`）
 - Android Lint 静态检查（`:app:lintDebug`）
-- 构建 Debug 与 Release APK（`:app:assembleDebug`、`:app:assembleRelease`）并上传 Workflow Artifacts；当推送 `v*` 标签时，自动发布对应版本的 [GitHub Release](https://github.com/misaka02/GlobalMinusOne/releases) 并附带 `release` / `debug` APK 与 `SHA256SUMS.txt`。
+- Debug 与 Release APK 构建（`:app:assembleDebug`、`:app:assembleRelease`）与 Workflow Artifacts 归档。
+
+> GitHub Releases 中的安装包含兼容历史证书重签校验，由本地签发脚本经人工核验后上传；云端 CI 仅做构建与测试验证，不覆盖已签发的 Release 附件。
 
 ### 本地从源码构建
 - **JDK**: Java 17
@@ -60,8 +63,11 @@
 - **Gradle**: Wrapper 9.1.0 / AGP 9.0.1 / Kotlin 2.3.20
 
 ```bash
-# 运行 JVM 单元测试（750+ 项）
+# 运行 JVM 单元测试（1,100+ 项）
 ./gradlew testDebugUnitTest
+
+# 检查 AndroidTest 源码编译
+./gradlew compileDebugAndroidTestKotlin
 
 # 运行 Android Lint 静态检查
 ./gradlew lintDebug
@@ -84,7 +90,7 @@
    keyAlias=YOUR_KEY_ALIAS
    keyPassword=YOUR_KEY_PASSWORD
    ```
-   或通过环境变量传入 `GMO_SIGNING_STORE_FILE`、`GMO_SIGNING_STORE_PASSWORD`、`GMO_SIGNING_KEY_ALIAS`、`GMO_SIGNING_KEY_PASSWORD`。
+   或通过环境变量传入 `GMO_SIGNING_STORE_FILE`、`GMO_SIGNING_STORE_PASSWORD`、`GMO_SIGNING_KEY_ALIAS`、`GMO_SIGNING_KEY_PASSWORD`；本地调试兼容重签可通过 `GMO_COMPAT_DEBUG_KEYSTORE` 指定外部调试密钥库路径。
 2. **自定义应用包名**：默认 `applicationId` 为 `com.example.globalminusone`（便于本地兼容既有安装）；若独立分发或上架商店 / F-Droid，请在 `app/build.gradle.kts` 中修改为你自己的反向域名包名。
 
 ---

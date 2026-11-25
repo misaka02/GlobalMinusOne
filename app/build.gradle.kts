@@ -41,10 +41,10 @@ android {
         !signingKeyAlias.isNullOrBlank() &&
         !signingKeyPass.isNullOrBlank()
 
-    val compatibleDebugKeystore = listOfNotNull(
-        System.getenv("GMO_COMPAT_DEBUG_KEYSTORE"),
-        "C:/Android/.android/debug.keystore"
-    ).map(::File).firstOrNull { it.isFile }
+    val compatibleDebugKeystore = System.getenv("GMO_COMPAT_DEBUG_KEYSTORE")
+        ?.takeIf { it.isNotBlank() }
+        ?.let(::File)
+        ?.takeIf { it.isFile }
 
     signingConfigs {
         if (compatibleDebugKeystore != null) {

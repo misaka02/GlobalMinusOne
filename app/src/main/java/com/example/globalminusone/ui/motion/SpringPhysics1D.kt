@@ -17,8 +17,8 @@ data class SpringSample(
  */
 class SpringPhysics1D(
     val angularFrequency: Float,
-    val positionTolerance: Float = 0.0005f,
-    val velocityTolerance: Float = 0.005f
+    val positionTolerance: Float = 0.002f,
+    val velocityTolerance: Float = 0.04f
 ) {
     fun sample(
         startPosition: Float,
@@ -49,5 +49,12 @@ class SpringPhysics1D(
 fun panelSpringAngularFrequency(animMs: Int, closing: Boolean = false): Float {
     val effectiveMs = resolveEffectiveAnimationMs(animMs, if (closing) 0.82f else 1f, 800)
     if (effectiveMs <= 0) return 0f
-    return (22f * (260f / effectiveMs.toFloat())).coerceIn(9f, 65f)
+    return (7400f / effectiveMs.toFloat()).coerceIn(10f, 500f)
+}
+
+/** Upper bound for spring settle duration proportional to user `animationDurationMs`. */
+fun panelSpringMaxSettleSeconds(animMs: Int, closing: Boolean = false): Float {
+    val effectiveMs = resolveEffectiveAnimationMs(animMs, if (closing) 0.82f else 1f, 800)
+    if (effectiveMs <= 0) return 0f
+    return (effectiveMs / 1000f * 1.35f).coerceIn(0.032f, 2.5f)
 }

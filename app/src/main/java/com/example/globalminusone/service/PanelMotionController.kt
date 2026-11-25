@@ -3,6 +3,7 @@ package com.example.globalminusone.service
 import android.view.Choreographer
 import com.example.globalminusone.ui.motion.SpringPhysics1D
 import com.example.globalminusone.ui.motion.panelSpringAngularFrequency
+import com.example.globalminusone.ui.motion.panelSpringMaxSettleSeconds
 import kotlin.math.abs
 
 /**
@@ -23,20 +24,24 @@ internal class PanelMotionController(
     private var targetPosition = 0f
     private var startVelocity = 0f
     private var startNanos = 0L
+    private var maxSettleSeconds = MAX_SETTLE_SECONDS
     private var spring = SpringPhysics1D(22f)
     private var pendingOnEnd: (() -> Unit)? = null
 
     private val frameCallback = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
             if (!isAnimating) return
-            val elapsedSec = ((frameTimeNanos - startNanos).coerceAtLeast(1_000_000L) / 1_000_000_000f)
-                .coerceAtMost(MAX_SETTLE_SECONDS)
+            if (startNanos == 0L) {
+                startNanos = frameTimeNanos - FIRST_FRAME_LEAD_NANOS
+            }
+            val elapsedSec = ((frameTimeNanos - startNanos).coerceAtLeast(FIRST_FRAME_LEAD_NANOS) / 1_000_000_000f)
+                .coerceAtMost(maxSettleSeconds)
             val sample = spring.sample(startPosition, targetPosition, startVelocity, elapsedSec)
             val nextPos = sample.position.coerceIn(0f, 1f)
             val settled = sample.settled ||
-                elapsedSec >= MAX_SETTLE_SECONDS ||
-                (targetPosition >= 0.9999f && nextPos >= 0.9995f && abs(sample.velocity) < 0.05f) ||
-                (targetPosition <= 0.0001f && nextPos <= 0.0005f && abs(sample.velocity) < 0.05f)
+                elapsedSec >= maxSettleSeconds ||
+                (targetPosition >= 0.9999f && nextPos >= 0.998f && abs(sample.velocity) < 0.08f) ||
+                (targetPosition <= 0.0001f && nextPos <= 0.002f && abs(sample.velocity) < 0.08f)
             if (settled) {
                 val onEnd = pendingOnEnd
                 isAnimating = false
@@ -79,7 +84,8 @@ internal class PanelMotionController(
         val startPos = currentProgress
         val startVel = carryVelocity.takeIf { it.isFinite() }?.coerceIn(-MAX_VELOCITY, MAX_VELOCITY) ?: 0f
         val omega = panelSpringAngularFrequency(animationDurationMs, closing)
-        if (omega <= 0f || (abs(startPos - clampedTarget) <= 0.0005f && abs(startVel) <= 0.005f)) {
+        val settleCap = panelSpringMaxSettleSeconds(animationDurationMs, closing)
+        if (omega <= 0f || settleCap <= 0f || (abs(startPos - clampedTarget) <= 0.002f && abs(startVel) <= 0.04f)) {
             snapTo(clampedTarget)
             onEnd()
             return
@@ -87,7 +93,8 @@ internal class PanelMotionController(
         startPosition = startPos
         targetPosition = clampedTarget
         startVelocity = startVel
-        startNanos = System.nanoTime()
+        startNanos = 0L
+        maxSettleSeconds = settleCap
         spring = SpringPhysics1D(omega)
         pendingOnEnd = onEnd
         isAnimating = true
@@ -104,7 +111,8 @@ internal class PanelMotionController(
     }
 
     private companion object {
-        const val MAX_VELOCITY = 12f
+        const val MAX_VELOCITY = 24f
         const val MAX_SETTLE_SECONDS = 2.5f
+        const val FIRST_FRAME_LEAD_NANOS = 8_000_000L
     }
 }

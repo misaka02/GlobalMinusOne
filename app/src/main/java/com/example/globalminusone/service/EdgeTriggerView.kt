@@ -387,7 +387,7 @@ internal class EdgeTriggerView(
                     val dx = event.rawX - downRawX
                     val dy = event.rawY - downRawY
                     val (_, screenHeight) = host.getScreenSize()
-                    val vProg = (vy / (screenHeight.coerceAtLeast(1) * 0.35f)).coerceIn(-12f, 12f)
+                    val vProg = (vy / (screenHeight.coerceAtLeast(1) * 0.35f)).coerceIn(-24f, 24f)
                     if (gestureMode == GestureMode.FOLLOW_PANEL_DRAG) {
                         val progress = SidePullTriggerPolicy.followProgress(dy - dragStartProjectedPx, screenHeight)
                         val shouldOpen = SidePullTriggerPolicy.supports(position) &&

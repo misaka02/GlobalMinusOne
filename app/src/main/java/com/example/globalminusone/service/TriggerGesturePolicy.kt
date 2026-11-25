@@ -56,7 +56,7 @@ internal object TriggerGesturePolicy {
     ): Float {
         if (!vxPxPerSec.isFinite() || !vyPxPerSec.isFinite()) return 0f
         return (projectedDistance(direction, vxPxPerSec, vyPxPerSec) / followExtent(direction, panelWidth, screenHeight))
-            .coerceIn(-12f, 12f)
+            .coerceIn(-24f, 24f)
     }
 
     fun shouldSettleOpen(

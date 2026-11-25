@@ -20,6 +20,7 @@ import com.example.globalminusone.service.resolveWidgetTouchScrollAction
 import com.example.globalminusone.ui.motion.MotionTokens
 import com.example.globalminusone.ui.motion.SpringPhysics1D
 import com.example.globalminusone.ui.motion.panelSpringAngularFrequency
+import com.example.globalminusone.ui.motion.panelSpringMaxSettleSeconds
 import com.example.globalminusone.ui.motion.settingsScreenDepth
 import com.example.globalminusone.ui.panel.ContainerPresentation
 import com.example.globalminusone.ui.panel.PanelFlingCalibration
@@ -291,5 +292,24 @@ class MotionAndPanelSpringTest {
         assertEquals(false, resolveWidgetTouchScrollAction(true, 4f, -36f, 16f, canScrollUpContent = true, canScrollDownContent = false))
         assertEquals(true, resolveWidgetTouchScrollAction(true, 4f, 36f, 16f, canScrollUpContent = true, canScrollDownContent = false))
         assertEquals(false, resolveWidgetTouchScrollAction(true, 4f, 36f, 16f, canScrollUpContent = false, canScrollDownContent = true))
+    }
+
+    @Test
+    fun springPhysics_snapsPromptlyAtLowAnimationDurations() {
+        val omega50 = panelSpringAngularFrequency(50, closing = false)
+        assertTrue("Expected crisp angular frequency at 50ms, got $omega50", omega50 > 100f)
+        val spring50 = SpringPhysics1D(omega50)
+        assertTrue(spring50.sample(0f, 1f, 0f, 0.05f).position >= 0.99f)
+        assertTrue(spring50.sample(0f, 1f, 0f, 0.08f).settled)
+
+        val omegaMin = panelSpringAngularFrequency(16, closing = false)
+        assertTrue("Expected ultra-fast angular frequency at 16ms, got $omegaMin", omegaMin > 300f)
+        val springMin = SpringPhysics1D(omegaMin)
+        assertTrue(springMin.sample(0f, 1f, 0f, 0.016f).position >= 0.99f)
+        assertTrue(springMin.sample(0f, 1f, 0f, 0.032f).settled)
+
+        val cap50 = panelSpringMaxSettleSeconds(50, closing = false)
+        assertTrue("Expected tight settle cap at 50ms, got $cap50", cap50 in 0.05f..0.08f)
+        assertEquals(0f, panelSpringMaxSettleSeconds(0, closing = false), 0f)
     }
 }

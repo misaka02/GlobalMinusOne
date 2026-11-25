@@ -11,16 +11,12 @@ import com.example.globalminusone.data.resolveEffectiveAnimationMs
 
 /** Shared Compose physics tokens scaled consistently from user `animationDurationMs`. */
 internal object MotionTokens {
-    fun pagerSnapSpring(animMs: Int): AnimationSpec<Float> {
-        if (animMs <= 0) return snap()
-        val effectiveMs = resolveEffectiveAnimationMs(animMs, 1f, 600)
-        val ratio = 240f / effectiveMs.toFloat()
-        val stiffness = (650f * ratio * ratio).coerceIn(140f, 3200f)
-        return spring(
+    fun pagerSnapSpring(animMs: Int): AnimationSpec<Float> =
+        if (animMs <= 0) snap()
+        else spring(
             dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = stiffness
+            stiffness = scaledStiffness(animMs, baseStiffness = 650f, baseMs = 240f, scale = 1f, maxMs = 600, minStiffness = 140f)
         )
-    }
 
     fun cardSettleSpring(animMs: Int): AnimationSpec<Float> =
         if (animMs <= 0) snap()
@@ -30,60 +26,57 @@ internal object MotionTokens {
         if (animMs <= 0) snap()
         else spring(dampingRatio = 0.94f, stiffness = cardSettleStiffness(animMs))
 
-    fun overlayEnterSpring(animMs: Int): FiniteAnimationSpec<Float> {
-        if (animMs <= 0) return snap()
-        val effectiveMs = resolveEffectiveAnimationMs(animMs, 1f, 420)
-        val ratio = 240f / effectiveMs.toFloat()
-        return spring(
+    fun overlayEnterSpring(animMs: Int): FiniteAnimationSpec<Float> =
+        if (animMs <= 0) snap()
+        else spring(
             dampingRatio = 0.92f,
-            stiffness = (780f * ratio * ratio).coerceIn(220f, 3200f)
+            stiffness = scaledStiffness(animMs, baseStiffness = 780f, baseMs = 240f, scale = 1f, maxMs = 420, minStiffness = 220f)
         )
-    }
 
-    fun overlayExitSpring(animMs: Int): FiniteAnimationSpec<Float> {
-        if (animMs <= 0) return snap()
-        val effectiveMs = resolveEffectiveAnimationMs(animMs, 0.78f, 340)
-        val ratio = 200f / effectiveMs.toFloat()
-        return spring(
+    fun overlayExitSpring(animMs: Int): FiniteAnimationSpec<Float> =
+        if (animMs <= 0) snap()
+        else spring(
             dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = (980f * ratio * ratio).coerceIn(300f, 4000f)
+            stiffness = scaledStiffness(animMs, baseStiffness = 980f, baseMs = 200f, scale = 0.78f, maxMs = 340, minStiffness = 300f)
         )
-    }
 
-    fun screenSlideEnterSpring(animMs: Int): FiniteAnimationSpec<IntOffset> {
-        if (animMs <= 0) return snap()
-        val effectiveMs = resolveEffectiveAnimationMs(animMs, 1f, 420)
-        val ratio = 240f / effectiveMs.toFloat()
-        return spring(
+    fun screenSlideEnterSpring(animMs: Int): FiniteAnimationSpec<IntOffset> =
+        if (animMs <= 0) snap()
+        else spring(
             dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = (680f * ratio * ratio).coerceIn(200f, 3000f)
+            stiffness = scaledStiffness(animMs, baseStiffness = 680f, baseMs = 240f, scale = 1f, maxMs = 420, minStiffness = 200f)
         )
-    }
 
-    fun screenSlideExitSpring(animMs: Int): FiniteAnimationSpec<IntOffset> {
-        if (animMs <= 0) return snap()
-        val effectiveMs = resolveEffectiveAnimationMs(animMs, 0.82f, 360)
-        val ratio = 210f / effectiveMs.toFloat()
-        return spring(
+    fun screenSlideExitSpring(animMs: Int): FiniteAnimationSpec<IntOffset> =
+        if (animMs <= 0) snap()
+        else spring(
             dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = (820f * ratio * ratio).coerceIn(260f, 3600f)
+            stiffness = scaledStiffness(animMs, baseStiffness = 820f, baseMs = 210f, scale = 0.82f, maxMs = 360, minStiffness = 260f)
         )
-    }
 
-    fun chromeFadeSpec(animMs: Int): AnimationSpec<Float> {
-        if (animMs <= 0) return snap()
-        val effectiveMs = resolveEffectiveAnimationMs(animMs, 1f, 500)
-        val ratio = 240f / effectiveMs.toFloat()
-        return spring(
+    fun chromeFadeSpec(animMs: Int): AnimationSpec<Float> =
+        if (animMs <= 0) snap()
+        else spring(
             dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = (850f * ratio * ratio).coerceIn(220f, 3600f)
+            stiffness = scaledStiffness(animMs, baseStiffness = 850f, baseMs = 240f, scale = 1f, maxMs = 500, minStiffness = 220f)
         )
-    }
 
-    private fun cardSettleStiffness(animMs: Int): Float {
-        if (animMs <= 0) return Spring.StiffnessHigh
-        val effectiveMs = resolveEffectiveAnimationMs(animMs, 1f, 600)
-        val ratio = 240f / effectiveMs.toFloat()
-        return (950f * ratio * ratio).coerceIn(180f, 3600f)
+    private fun cardSettleStiffness(animMs: Int): Float =
+        if (animMs <= 0) Spring.StiffnessHigh
+        else scaledStiffness(animMs, baseStiffness = 950f, baseMs = 240f, scale = 1f, maxMs = 600, minStiffness = 180f)
+
+    private fun scaledStiffness(
+        animMs: Int,
+        baseStiffness: Float,
+        baseMs: Float,
+        scale: Float,
+        maxMs: Int,
+        minStiffness: Float,
+        maxStiffness: Float = 12000f
+    ): Float {
+        val effectiveMs = resolveEffectiveAnimationMs(animMs, scale, maxMs)
+        if (effectiveMs <= 0) return maxStiffness
+        val ratio = baseMs / effectiveMs.toFloat()
+        return (baseStiffness * ratio * ratio).coerceIn(minStiffness, maxStiffness)
     }
 }
