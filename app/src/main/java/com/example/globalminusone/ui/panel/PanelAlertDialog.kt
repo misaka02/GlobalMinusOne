@@ -1,6 +1,5 @@
 package com.example.globalminusone.ui.panel
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -14,6 +13,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import com.example.globalminusone.theme.SettingsTheme
+import com.example.globalminusone.ui.motion.AnimatedOverlayTarget
+import com.example.globalminusone.ui.motion.overlayDialogMotion
+import com.example.globalminusone.ui.motion.overlayScrim
 
 /** Render service modals in the existing full-size overlay, outside card/pager constraints. */
 internal class PanelModalHostState {
@@ -77,13 +79,21 @@ internal object PanelModalBackHandler {
 }
 
 @Composable
+internal fun AnimatedPanelModalHostContent(entry: PanelModalEntry?) {
+    val animMs = LocalPanelPalette.current.themeConfig.animationDurationMs.coerceIn(0, 800)
+    AnimatedOverlayTarget(targetState = entry, animMs = animMs, keyOf = { it.owner }) { active ->
+        active.content()
+    }
+}
+
+@Composable
 internal fun PanelModalHost(state: PanelModalHostState) {
     val owner = remember(state) { Any() }
     DisposableEffect(state, owner) {
         PanelModalBackHandler.register(owner, PanelModalBackHandler.PRIORITY_DIALOG) { state.dismiss() }
         onDispose { PanelModalBackHandler.unregister(owner) }
     }
-    state.entry?.content?.invoke()
+    AnimatedPanelModalHostContent(state.entry)
 }
 
 @Composable
@@ -111,11 +121,12 @@ private fun PanelDialogContent(dark: Boolean, onDismissRequest: () -> Unit, titl
     val dialogWidth = (configuration.screenWidthDp.dp * .92f).coerceAtMost(560.dp)
     val dialogHeight = configuration.screenHeightDp.dp * .88f
     SettingsTheme(darkTheme = dark) {
-            Box(Modifier.fillMaxSize().imePadding().background(Color.Black.copy(alpha = .4f))
+            Box(Modifier.fillMaxSize().imePadding().overlayScrim(Color.Black, 0.4f)
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null,
                     onClick = onDismissRequest), contentAlignment = Alignment.Center) {
                 Surface(modifier = Modifier.width(dialogWidth)
                     .heightIn(min = 120.dp, max = dialogHeight)
+                    .overlayDialogMotion()
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
                     shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     contentColor = MaterialTheme.colorScheme.onSurface, shadowElevation = 8.dp) {

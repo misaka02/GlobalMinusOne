@@ -41,6 +41,15 @@ internal fun folderToolbarDensity(contentWidthDp: Float): FolderToolbarDensity =
     ultraCompactHeader = contentWidthDp < 124f
 )
 
+/**
+ * Policy flag controlling whether the permanent two-button ("编辑内部布局 | 文件夹属性") row
+ * appears beneath the folder title. Both actions live in the ⋮ menu so browsing keeps full vertical space.
+ */
+internal fun shouldShowFolderHeaderDualActionRow(
+    editing: Boolean = false,
+    locked: Boolean = false
+): Boolean = false
+
 /** Single-window folder toolbar: quiet header in browse mode, focused controls in edit mode, inline menu with no extra Popups. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -57,6 +66,7 @@ internal fun FolderWindowToolbar(
     onInlineGridChange: ((columns: Int?, iconSizeDp: Int?, gapDp: Int?, rowGapDp: Int?) -> Unit)? = null,
     selectedChild: ComponentItem? = null,
     onOpenSelectedProperties: (() -> Unit)? = null,
+    onOpenSelectedGeometry: (() -> Unit)? = null,
     onMoveSelectedChild: (() -> Unit)? = null,
     onDeleteSelectedChild: (() -> Unit)? = null,
     onClose: () -> Unit
@@ -117,6 +127,30 @@ internal fun FolderWindowToolbar(
                 }
             }
 
+            if (!locked && editing) {
+                Surface(
+                    onClick = { onMenu(false); onEdit() },
+                    shape = RoundedCornerShape(999.dp),
+                    color = palette.accent,
+                    modifier = Modifier.height(iconBtnSize)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = if (densitySpec.ultraCompactHeader) 7.dp else 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Icon(Icons.Check, "完成编辑", Modifier.size(13.dp), tint = Color.White)
+                        if (!densitySpec.ultraCompactHeader) {
+                            Text(
+                                text = "完成",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
             if (!locked && onAdd != null && editing) {
                 Surface(
                     onClick = { onMenu(false); onAdd() },
@@ -130,18 +164,81 @@ internal fun FolderWindowToolbar(
                 }
             }
             if (!locked) {
-                Surface(
-                    onClick = { onMenu(!menuExpanded) },
-                    shape = CircleShape,
-                    color = if (menuExpanded) palette.accent.copy(alpha = 0.14f) else groupBg,
-                    modifier = Modifier.size(iconBtnSize)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            if (menuExpanded) Icons.KeyboardArrowUp else Icons.MoreVert,
-                            "文件夹菜单",
-                            Modifier.size(iconGlyphSize),
-                            tint = if (menuExpanded) palette.accent else palette.textSecondary
+                Box {
+                    Surface(
+                        onClick = { onMenu(!menuExpanded) },
+                        shape = CircleShape,
+                        color = if (menuExpanded) palette.accent.copy(alpha = 0.14f) else groupBg,
+                        modifier = Modifier.size(iconBtnSize)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.MoreVert,
+                                "文件夹菜单",
+                                Modifier.size(iconGlyphSize),
+                                tint = if (menuExpanded) palette.accent else palette.textSecondary
+                            )
+                        }
+                    }
+                    fun runAction(action: () -> Unit) {
+                        onMenu(false)
+                        action()
+                    }
+                    PanelDropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { onMenu(false) }
+                    ) {
+                        com.example.globalminusone.ui.Android12WindowKeyGuard()
+                        val mPalette = checkNotNull(LocalPanelMenuPalette.current)
+                        PanelMenuItem(
+                            text = {
+                                Text(
+                                    if (editing) "完成内部编辑" else "编辑内部布局",
+                                    fontSize = 13.sp,
+                                    fontWeight = if (editing) FontWeight.SemiBold else FontWeight.Medium,
+                                    color = if (editing) mPalette.accent else mPalette.text
+                                )
+                            },
+                            onClick = { runAction(onEdit) }
+                        )
+                        PanelMenuItem(
+                            text = { Text("文件夹属性", fontSize = 13.sp) },
+                            onClick = { runAction { onOpenSection("") } }
+                        )
+                        HorizontalDivider()
+                        PanelMenuSectionTitle("内容与布局")
+                        if (onAdd != null) {
+                            PanelMenuItem(
+                                text = { Text("添加项目", fontSize = 13.sp) },
+                                onClick = { runAction { onAdd.invoke() } }
+                            )
+                        }
+                        PanelMenuItem(
+                            text = {
+                                Text(
+                                    if (item.containerLayout == ContainerLayoutType.GRID) {
+                                        "排列与间距（网格 · ${item.containerColumns}列）"
+                                    } else {
+                                        "排列与间距（自由摆放）"
+                                    },
+                                    fontSize = 13.sp
+                                )
+                            },
+                            onClick = { runAction { onOpenSection("内部排列") } }
+                        )
+                        PanelMenuItem(
+                            text = { Text("图标与文字留白", fontSize = 13.sp) },
+                            onClick = { runAction { onOpenSection("图标与文字留白") } }
+                        )
+                        HorizontalDivider()
+                        PanelMenuSectionTitle("窗口与关闭")
+                        PanelMenuItem(
+                            text = { Text("窗口大小", fontSize = 13.sp) },
+                            onClick = { runAction { onOpenSection("文件夹窗口") } }
+                        )
+                        PanelMenuItem(
+                            text = { Text("关闭文件夹", fontSize = 13.sp) },
+                            onClick = { runAction(onClose) }
                         )
                     }
                 }
@@ -158,77 +255,8 @@ internal fun FolderWindowToolbar(
             }
         }
 
-        // 清爽两段式功能条：标准宽度常驻展示；窄小工具窗在浏览态收纳进 ⋮ 菜单，编辑态保持显式退出/属性入口
-        if (!locked && (!densitySpec.compactHeader || editing)) {
-            val editLabel = when {
-                editing && densitySpec.ultraCompactHeader -> "完成编辑"
-                editing -> "完成内部编辑"
-                else -> "编辑内部布局"
-            }
-            val propLabel = if (densitySpec.ultraCompactHeader) "属性设置" else "文件夹属性"
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp),
-                color = groupBg,
-                border = BorderStroke(0.6.dp, groupBorder)
-            ) {
-                if (densitySpec.compactMenu) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(3.dp),
-                        verticalArrangement = Arrangement.spacedBy(3.dp)
-                    ) {
-                        FolderSegmentAction(
-                            label = editLabel,
-                            icon = if (editing) Icons.Check else Icons.Edit,
-                            active = editing,
-                            accent = palette.accent,
-                            inactiveTextColor = palette.textPrimary,
-                            modifier = Modifier.fillMaxWidth(),
-                            onClick = { onMenu(false); onEdit() }
-                        )
-                        FolderSegmentAction(
-                            label = propLabel,
-                            icon = Icons.Settings,
-                            active = false,
-                            accent = palette.accent,
-                            inactiveTextColor = palette.textPrimary,
-                            modifier = Modifier.fillMaxWidth(),
-                            onClick = { onMenu(false); onOpenSection("") }
-                        )
-                    }
-                } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(3.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        FolderSegmentAction(
-                            label = editLabel,
-                            icon = if (editing) Icons.Check else Icons.Edit,
-                            active = editing,
-                            accent = palette.accent,
-                            inactiveTextColor = palette.textPrimary,
-                            modifier = Modifier.weight(1f),
-                            onClick = { onMenu(false); onEdit() }
-                        )
-                        Box(
-                            Modifier
-                                .width(0.8.dp)
-                                .height(16.dp)
-                                .background(groupBorder)
-                        )
-                        FolderSegmentAction(
-                            label = propLabel,
-                            icon = Icons.Settings,
-                            active = false,
-                            accent = palette.accent,
-                            inactiveTextColor = palette.textPrimary,
-                            modifier = Modifier.weight(1f),
-                            onClick = { onMenu(false); onOpenSection("") }
-                        )
-                    }
-                }
-            }
+        if (shouldShowFolderHeaderDualActionRow(editing = editing, locked = locked)) {
+            // 保留兼容钩子，默认关闭：编辑布局与文件夹属性统一通过 ⋮ 三点菜单进入
         }
 
         if (editing && !locked && selectedChild != null) {
@@ -259,6 +287,9 @@ internal fun FolderWindowToolbar(
                     )
                     if (onOpenSelectedProperties != null) {
                         FolderQuickTag("属性", palette.cardBackground, palette.accent) { onMenu(false); onOpenSelectedProperties() }
+                    }
+                    if (onOpenSelectedGeometry != null) {
+                        FolderQuickTag("尺寸", palette.cardBackground, palette.accent) { onMenu(false); onOpenSelectedGeometry() }
                     }
                     if (onMoveSelectedChild != null) {
                         FolderQuickTag("移动", palette.cardBackground, palette.textPrimary) { onMenu(false); onMoveSelectedChild() }
@@ -334,142 +365,7 @@ internal fun FolderWindowToolbar(
                 }
             }
         }
-
-        if (menuExpanded && !locked) {
-            val panelBg = menuPalette?.background ?: palette.cardBackground
-            val borderColor = menuPalette?.divider ?: groupBorder
-            val compactMenu = densitySpec.compactMenu
-            fun runAction(action: () -> Unit) { onMenu(false); action() }
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                color = panelBg,
-                border = BorderStroke(0.8.dp, borderColor),
-                shadowElevation = 3.dp
-            ) {
-                Column(Modifier.padding(vertical = if (compactMenu) 4.dp else 6.dp)) {
-                    FolderMenuEntry(
-                        title = when {
-                            editing && compactMenu -> "完成编辑"
-                            editing -> "完成内部编辑"
-                            compactMenu -> "编辑布局"
-                            else -> "编辑内部布局"
-                        },
-                        icon = if (editing) Icons.Check else Icons.Edit,
-                        subtitle = if (compactMenu) "" else if (editing) "退出文件夹内部编辑" else "调整子项、拖拽与网格参数",
-                        active = editing,
-                        compact = compactMenu
-                    ) {
-                        runAction(onEdit)
-                    }
-                    FolderMenuEntry(
-                        title = if (compactMenu) "属性设置" else "文件夹属性",
-                        icon = Icons.Settings,
-                        subtitle = if (compactMenu) "" else "外观、标题、布局与窗口全部设置",
-                        compact = compactMenu
-                    ) {
-                        runAction { onOpenSection("") }
-                    }
-                    HorizontalDivider(color = borderColor.copy(alpha = 0.6f))
-                    if (!compactMenu) {
-                        Text(
-                            text = "内容与布局",
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = palette.textSecondary
-                        )
-                    }
-                    if (onAdd != null) {
-                        FolderMenuEntry(
-                            title = "添加项目",
-                            icon = Icons.Add,
-                            subtitle = if (compactMenu) "" else "向此文件夹添加卡片",
-                            compact = compactMenu
-                        ) {
-                            runAction { onAdd.invoke() }
-                        }
-                    }
-                    FolderMenuEntry(
-                        title = if (compactMenu) "排列间距" else "排列与间距",
-                        icon = Icons.GridView,
-                        subtitle = if (compactMenu) "" else if (item.containerLayout == ContainerLayoutType.GRID) "当前：网格 · ${item.containerColumns}列" else "当前：自由摆放",
-                        compact = compactMenu
-                    ) {
-                        runAction { onOpenSection("内部排列") }
-                    }
-                    FolderMenuEntry(
-                        title = if (compactMenu) "留白设置" else "图标与文字留白",
-                        icon = Icons.FormatPaint,
-                        subtitle = if (compactMenu) "" else "上下内边距 · 图文间隔",
-                        compact = compactMenu
-                    ) {
-                        runAction { onOpenSection("图标与文字留白") }
-                    }
-                    HorizontalDivider(color = borderColor.copy(alpha = 0.6f))
-                    if (!compactMenu) {
-                        Text(
-                            text = "窗口与关闭",
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = palette.textSecondary
-                        )
-                    }
-                    FolderMenuEntry(
-                        title = "窗口大小",
-                        icon = Icons.Tune,
-                        subtitle = if (compactMenu) "" else
-                            "宽${if (item.containerPopupWidthDp > 0) "${item.containerPopupWidthDp}dp" else "自动"} · " +
-                                "高${if (item.containerPopupHeightDp > 0) "${item.containerPopupHeightDp}dp" else "自动"}",
-                        compact = compactMenu
-                    ) {
-                        runAction { onOpenSection("文件夹窗口") }
-                    }
-                    FolderMenuEntry(
-                        title = if (compactMenu) "关闭" else "关闭文件夹",
-                        icon = Icons.Close,
-                        compact = compactMenu
-                    ) { runAction(onClose) }
-                }
-            }
-        }
     }
-    }
-}
-
-@Composable
-private fun FolderSegmentAction(
-    label: String,
-    icon: ImageVector,
-    active: Boolean,
-    accent: Color,
-    inactiveTextColor: Color,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    Surface(
-        onClick = onClick,
-        modifier = modifier.height(30.dp),
-        shape = RoundedCornerShape(8.dp),
-        color = if (active) accent else Color.Transparent
-    ) {
-        Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(icon, null, Modifier.size(13.dp), tint = if (active) Color.White else accent)
-            Text(
-                text = label,
-                color = if (active) Color.White else inactiveTextColor,
-                fontSize = 11.sp,
-                fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
     }
 }
 
@@ -494,58 +390,5 @@ private fun FolderQuickTag(
             maxLines = 1,
             softWrap = false
         )
-    }
-}
-
-@Composable
-private fun FolderMenuEntry(
-    title: String,
-    icon: ImageVector,
-    subtitle: String = "",
-    active: Boolean = false,
-    enabled: Boolean = true,
-    compact: Boolean = false,
-    onClick: () -> Unit
-) {
-    val palette = LocalPanelPalette.current
-    val menuPalette = LocalPanelMenuPalette.current
-    val titleColor = if (!enabled) (menuPalette?.disabled ?: palette.textSecondary.copy(alpha = 0.45f))
-    else if (active) (menuPalette?.accent ?: palette.accent)
-    else (menuPalette?.text ?: palette.textPrimary)
-    val subColor = if (enabled) (menuPalette?.secondary ?: palette.textSecondary)
-    else (menuPalette?.disabled ?: palette.textSecondary.copy(alpha = 0.45f))
-    val iconTint = if (!enabled) subColor else if (active) (menuPalette?.accent ?: palette.accent) else subColor
-    Surface(
-        onClick = onClick,
-        enabled = enabled,
-        color = Color.Transparent
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(
-                horizontal = if (compact) 8.dp else 12.dp,
-                vertical = if (compact) 6.dp else 9.dp
-            ),
-            horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(icon, null, Modifier.size(if (compact) 14.dp else 17.dp), tint = iconTint)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                Text(
-                    title,
-                    color = titleColor,
-                    fontSize = if (compact) 11.sp else 13.sp,
-                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (subtitle.isNotEmpty()) Text(
-                    subtitle,
-                    color = subColor,
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
     }
 }

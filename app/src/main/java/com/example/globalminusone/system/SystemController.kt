@@ -27,19 +27,38 @@ import android.util.Log
 import android.widget.Toast
 import com.example.globalminusone.data.GestureAction
 import com.example.globalminusone.data.TriggerSide
-import com.example.globalminusone.service.GlobalAccessibilityService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlin.math.roundToInt
+
+internal fun computeMediaVolumeIndex(percent: Int, minVol: Int, maxVol: Int): Int {
+    val safeMax = maxOf(minVol, maxVol)
+    val span = safeMax - minVol
+    if (span <= 0) return minVol
+    return (minVol + ((percent.coerceIn(0, 100) / 100f) * span).roundToInt()).coerceIn(minVol, safeMax)
+}
+
+internal fun computeMediaVolumePercent(curVol: Int, minVol: Int, maxVol: Int): Int {
+    val safeMax = maxOf(minVol, maxVol)
+    val span = safeMax - minVol
+    if (span <= 0) return 0
+    return (((curVol.coerceIn(minVol, safeMax) - minVol).toFloat() / span.toFloat()) * 100f)
+        .roundToInt()
+        .coerceIn(0, 100)
+}
 
 class SystemController(private val context: Context) {
     /**
@@ -171,7 +190,7 @@ class SystemController(private val context: Context) {
             }
             GestureAction.BACK -> performBack()
             GestureAction.HOME -> {
-                val service = GlobalAccessibilityService.instance
+                val service = context.currentSystemAccessibilityActions()
                 if (service != null && service.performHome()) {
                     true
                 } else {
@@ -186,6 +205,9 @@ class SystemController(private val context: Context) {
             GestureAction.LOCK -> lockScreen()
             GestureAction.POWER -> performPowerDialog()
             GestureAction.SCREENSHOT -> takeScreenshot()
+            GestureAction.REGION_SCREENSHOT -> takeRegionScreenshot()
+            GestureAction.SCREEN_ASSISTANT -> launchScreenAssistant()
+            GestureAction.BREENO_TOUCH -> launchBreenoTouch()
         }
     }
 
@@ -194,7 +216,7 @@ class SystemController(private val context: Context) {
      */
     fun canControlTorch(): Boolean = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
     private fun closePanelForSystemUi() {
-        com.example.globalminusone.service.OverlayService.start(context, com.example.globalminusone.service.OverlayService.ACTION_CLOSE_PANEL)
+        context.panelVisibilityRequests().close(context)
     }
     fun requestTorchPermission() {
         closePanelForSystemUi()
@@ -225,25 +247,144 @@ class SystemController(private val context: Context) {
     /**
      * 音量控制：媒体音量 (0..100)
      */
+    private fun mediaVolumeBounds(): Pair<Int, Int> {
+        val minVol = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            runCatching { audioManager.getStreamMinVolume(AudioManager.STREAM_MUSIC) }.getOrDefault(0)
+        } else {
+            0
+        }
+        val maxVol = runCatching { audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) }
+            .getOrDefault(15)
+            .coerceAtLeast(minVol)
+        return minVol to maxVol
+    }
+
+    fun isMediaVolumeFixed(): Boolean = runCatching { audioManager.isVolumeFixed }.getOrDefault(false)
+
     fun getMediaVolumePercent(): Int {
         return try {
-            val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            val (minVol, maxVol) = mediaVolumeBounds()
             val curVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-            if (maxVolume > 0) {
-                ((curVolume.toFloat() / maxVolume.toFloat()) * 100f).roundToInt().coerceIn(0, 100)
-            } else 0
-        } catch (e: Exception) {
+            computeMediaVolumePercent(curVolume, minVol, maxVol)
+        } catch (_: Exception) {
             0
         }
     }
 
-    fun setMediaVolumePercent(percent: Int) {
-        try {
-            val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-            val targetVolume = ((percent.coerceIn(0, 100) / 100f) * maxVolume).roundToInt().coerceIn(0, maxVolume)
-            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetVolume, 0)
+    fun setMediaVolumePercent(percent: Int): Boolean {
+        return try {
+            if (isMediaVolumeFixed()) return false
+            val (minVol, maxVol) = mediaVolumeBounds()
+            cachedVolumeBounds = minVol to maxVol
+            val targetIndex = computeMediaVolumeIndex(percent, minVol, maxVol)
+            applyMediaVolumeIndexDirect(targetIndex, minVol, maxVol)
         } catch (e: Exception) {
             Log.e("SystemController", "Failed to set media volume", e)
+            false
+        }
+    }
+
+    private val pendingVolumePercent = AtomicInteger(-1)
+    private val volumeWriterActive = AtomicBoolean(false)
+    @Volatile
+    private var cachedVolumeBounds: Pair<Int, Int>? = null
+    @Volatile
+    private var lastWrittenVolumeIndex: Int = Int.MIN_VALUE
+
+    private fun applyMediaVolumeIndexDirect(targetIndex: Int, minVol: Int, maxVol: Int): Boolean {
+        return runCatching {
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetIndex, 0)
+            true
+        }.getOrElse { err ->
+            if (err is SecurityException && targetIndex == 0 && maxVol > minVol) {
+                val safeMin = minOf(maxVol, maxOf(1, minVol))
+                runCatching {
+                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, safeMin, 0)
+                    true
+                }.getOrDefault(false)
+            } else {
+                false
+            }
+        }
+    }
+
+    /**
+     * Non-blocking volume dispatch for continuous slider dragging: coalesces rapid UI changes and
+     * performs quantized AudioManager Binder IPC exclusively on Dispatchers.IO.
+     */
+    fun setMediaVolumePercentAsync(percent: Int) {
+        pendingVolumePercent.set(percent.coerceIn(0, 100))
+        if (!volumeWriterActive.compareAndSet(false, true)) return
+        rootControlScope.launch(Dispatchers.IO) {
+            try {
+                if (isMediaVolumeFixed()) {
+                    pendingVolumePercent.set(-1)
+                    return@launch
+                }
+                while (true) {
+                    val nextPercent = pendingVolumePercent.getAndSet(-1)
+                    if (nextPercent < 0) break
+                    val (minVol, maxVol) = cachedVolumeBounds ?: mediaVolumeBounds().also { cachedVolumeBounds = it }
+                    val targetIndex = computeMediaVolumeIndex(nextPercent, minVol, maxVol)
+                    if (targetIndex != lastWrittenVolumeIndex) {
+                        if (applyMediaVolumeIndexDirect(targetIndex, minVol, maxVol)) {
+                            lastWrittenVolumeIndex = targetIndex
+                        }
+                    }
+                }
+            } catch (c: CancellationException) {
+                throw c
+            } catch (e: Exception) {
+                Log.w("SystemController", "Async media volume update failed", e)
+            } finally {
+                volumeWriterActive.set(false)
+                if (pendingVolumePercent.get() >= 0 && volumeWriterActive.compareAndSet(false, true)) {
+                    val remaining = pendingVolumePercent.getAndSet(-1)
+                    if (remaining >= 0) setMediaVolumePercentAsync(remaining) else volumeWriterActive.set(false)
+                }
+            }
+        }
+    }
+
+    /**
+     * Final release commit on Dispatchers.IO with verified readback and optional Root fallback.
+     */
+    fun commitMediaVolumePercentAsync(percent: Int, onFallbackNeeded: () -> Unit) {
+        pendingVolumePercent.set(-1)
+        rootControlScope.launch(Dispatchers.IO) {
+            val fixed = isMediaVolumeFixed()
+            val (minVol, maxVol) = mediaVolumeBounds().also { cachedVolumeBounds = it }
+            val targetIndex = computeMediaVolumeIndex(percent.coerceIn(0, 100), minVol, maxVol)
+            val directOk = !fixed && applyMediaVolumeIndexDirect(targetIndex, minVol, maxVol)
+            if (directOk) {
+                lastWrittenVolumeIndex = targetIndex
+                delay(70L)
+            }
+            val readback = runCatching { audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) }.getOrDefault(targetIndex)
+            var adjusted = !fixed && directOk && (readback == targetIndex || (targetIndex == 0 && readback <= 1))
+            if (!adjusted && !fixed && UserRootSession.authorizedEpoch() != null) {
+                val res = UserRootSession.runBoundedCommand(
+                    "/system/bin/cmd media_session volume --stream 3 --set $targetIndex",
+                    maxBytes = 4096,
+                    timeoutMs = 2_500L,
+                    preserveSessionOnTimeout = true
+                )
+                val afterRoot = runCatching { audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) }.getOrDefault(readback)
+                adjusted = res.exitCode == 0 || afterRoot == targetIndex
+            }
+            if (!adjusted || fixed) {
+                withContext(Dispatchers.Main) { onFallbackNeeded() }
+            }
+        }
+    }
+
+    fun openSystemVolumePanel() {
+        runCatching {
+            audioManager.adjustStreamVolume(
+                AudioManager.STREAM_MUSIC,
+                AudioManager.ADJUST_SAME,
+                AudioManager.FLAG_SHOW_UI
+            )
         }
     }
 
@@ -279,7 +420,7 @@ class SystemController(private val context: Context) {
 
     fun requestWriteSettingsPermission() {
         try {
-            com.example.globalminusone.service.OverlayService.start(context, com.example.globalminusone.service.OverlayService.ACTION_CLOSE_PANEL)
+            context.panelVisibilityRequests().close(context)
             val intent = Intent(
                 Settings.ACTION_MANAGE_WRITE_SETTINGS,
                 Uri.parse("package:${context.packageName}")
@@ -448,7 +589,7 @@ class SystemController(private val context: Context) {
         if (activeEmbeddedWindowBackHandler?.invoke() == true) {
             return true
         }
-        val service = GlobalAccessibilityService.instance
+        val service = context.currentSystemAccessibilityActions()
         return if (service != null) {
             service.performBack()
         } else {
@@ -458,7 +599,7 @@ class SystemController(private val context: Context) {
     }
 
     fun performSplitScreen(): Boolean {
-        val service = GlobalAccessibilityService.instance
+        val service = context.currentSystemAccessibilityActions()
         return if (service != null) {
             service.performSplitScreen()
         } else {
@@ -468,7 +609,7 @@ class SystemController(private val context: Context) {
     }
 
     fun performPowerDialog(): Boolean {
-        val service = GlobalAccessibilityService.instance
+        val service = context.currentSystemAccessibilityActions()
         return if (service != null) {
             service.performPowerDialog()
         } else {
@@ -478,7 +619,7 @@ class SystemController(private val context: Context) {
     }
 
     fun performLastApp(): Boolean {
-        val service = GlobalAccessibilityService.instance
+        val service = context.currentSystemAccessibilityActions()
         return if (service != null) {
             service.performLastApp()
         } else {
@@ -488,7 +629,7 @@ class SystemController(private val context: Context) {
     }
 
     fun lockScreen(): Boolean {
-        val service = GlobalAccessibilityService.instance
+        val service = context.currentSystemAccessibilityActions()
         return if (service != null) {
             service.performLockScreen()
         } else {
@@ -498,7 +639,7 @@ class SystemController(private val context: Context) {
     }
 
     fun takeScreenshot(): Boolean {
-        val service = GlobalAccessibilityService.instance
+        val service = context.currentSystemAccessibilityActions()
         return if (service != null) {
             service.performScreenshot()
         } else {
@@ -512,7 +653,9 @@ class SystemController(private val context: Context) {
      * instead of calling the OS full-screen screenshot action.
      */
     fun takeRegionScreenshot(): Boolean {
-        if (GlobalAccessibilityService.instance == null) {
+        val hasPrivilege = context.screenToolRequests().supportsPrivilegedScreenCapture(context)
+        if (context.currentSystemAccessibilityActions() == null && !hasPrivilege) {
+            closePanelForSystemUi()
             promptAccessibilityPermission()
             return false
         }
@@ -520,15 +663,32 @@ class SystemController(private val context: Context) {
             Toast.makeText(context, "区域截屏需要悬浮窗权限", Toast.LENGTH_SHORT).show()
             return false
         }
-        com.example.globalminusone.service.OverlayService.start(
-            context,
-            com.example.globalminusone.service.OverlayService.ACTION_REGION_SCREENSHOT
-        )
+        return context.screenToolRequests().regionScreenshot(context)
+    }
+
+    /** Triggers GlobalMinusOne's built-in Screen Assistant (识字 / 原位翻译 / 提图). */
+    fun launchScreenAssistant(): Boolean {
+        val hasPrivilege = context.screenToolRequests().supportsPrivilegedScreenCapture(context)
+        if (context.currentSystemAccessibilityActions() == null && !hasPrivilege) {
+            closePanelForSystemUi()
+            promptAccessibilityPermission()
+            return false
+        }
+        if (!Settings.canDrawOverlays(context)) {
+            Toast.makeText(context, "屏幕助手需要悬浮窗权限", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        return context.screenToolRequests().screenAssistant(context)
+    }
+
+    /** Requests the actual ColorOS screen-recognition entry; never substitutes the built-in assistant. */
+    fun launchBreenoTouch(): Boolean {
+        context.screenToolRequests().breenoTouch(context)
         return true
     }
 
     fun expandNotifications(): Boolean {
-        val service = GlobalAccessibilityService.instance
+        val service = context.currentSystemAccessibilityActions()
         if (service != null && service.performNotifications()) {
             return true
         }
@@ -549,7 +709,7 @@ class SystemController(private val context: Context) {
     }
 
     fun expandQuickSettings(): Boolean {
-        val service = GlobalAccessibilityService.instance
+        val service = context.currentSystemAccessibilityActions()
         if (service != null && service.performQuickSettings()) {
             return true
         }
@@ -580,7 +740,7 @@ class SystemController(private val context: Context) {
     }
 
     fun openRecentApps(): Boolean {
-        val service = GlobalAccessibilityService.instance
+        val service = context.currentSystemAccessibilityActions()
         return if (service != null) {
             service.performRecents()
         } else {

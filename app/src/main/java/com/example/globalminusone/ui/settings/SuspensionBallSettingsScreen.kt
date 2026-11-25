@@ -48,6 +48,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.example.globalminusone.ui.AppIcons as Icons
@@ -116,6 +117,8 @@ import com.example.globalminusone.service.OverlayService
 @Composable
 internal fun SuspensionBallSettingsScreen(
     repository: MinusOneRepository,
+    initialExpandedGroup: String = "",
+    jumpNonce: Long = 0L,
     onBack: () -> Unit
 ) {
     val state by repository.state.collectAsState()
@@ -124,7 +127,22 @@ internal fun SuspensionBallSettingsScreen(
     var gestureActionTarget by remember { mutableStateOf<String?>(null) }
     var showMouseSpeedDialog by remember { mutableStateOf(false) }
 
-    var expandedGroup by rememberSaveable { mutableStateOf("") }
+    var expandedGroup by rememberSaveable { mutableStateOf(initialExpandedGroup) }
+    val listState = rememberLazyListState()
+    LaunchedEffect(initialExpandedGroup, jumpNonce) {
+        if (initialExpandedGroup.isNotBlank()) {
+            expandedGroup = initialExpandedGroup
+            val idx = when (initialExpandedGroup) {
+                "外观" -> 1
+                "呼吸" -> 2
+                "渐隐" -> 3
+                "鼠标" -> 4
+                "动作" -> 5
+                else -> null
+            }
+            if (idx != null) listState.animateScrollToItem(idx)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -134,6 +152,7 @@ internal fun SuspensionBallSettingsScreen(
         SubPageTopBar(title = "悬浮球设置", onBack = onBack)
 
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background),
@@ -179,7 +198,7 @@ internal fun SuspensionBallSettingsScreen(
                         title = "半径",
                         value = ballConfig.radiusDp.toFloat(),
                         valueRange = 14f..60f,
-                        valueText = "${ballConfig.radiusDp}px",
+                        valueText = "${ballConfig.radiusDp} dp",
                         onValueChange = { r ->
                             repository.updateSuspensionBallConfig { it.copy(radiusDp = r.toInt()) }
                         }

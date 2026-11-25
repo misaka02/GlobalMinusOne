@@ -38,6 +38,10 @@ class MainActivity : ComponentActivity() {
         ) || super.onKeyUp(keyCode, event)
 
     private lateinit var repository: MinusOneRepository
+    private val navigationNonceGenerator = java.util.concurrent.atomic.AtomicLong(0L)
+    private val navigationRequestState = androidx.compose.runtime.mutableStateOf<com.example.globalminusone.ui.settings.SettingsNavigationRequest?>(null)
+
+    private fun nextNavigationNonce(): Long = navigationNonceGenerator.incrementAndGet()
     private val torchPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         Toast.makeText(this, if (granted) "已允许手电筒访问，请点按面板开关" else "相机权限未授予，手电筒未开启", Toast.LENGTH_SHORT).show()
         if (!granted) showPermissionSettings(android.Manifest.permission.CAMERA) else finishPermissionRequest()
@@ -87,6 +91,12 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        com.example.globalminusone.ui.settings.SettingsNavigationPolicy.buildRequest(
+            intent.getStringExtra("open_screen"),
+            ::nextNavigationNonce
+        )?.let { request ->
+            navigationRequestState.value = request
+        }
         if (intent.action == ACTION_REQUEST_TORCH_PERMISSION) requestTorchPermission()
         if (intent.action == ACTION_REQUEST_BLUETOOTH_PERMISSION) requestBluetoothPermission()
     }
@@ -104,7 +114,16 @@ class MainActivity : ComponentActivity() {
             if (intent?.action == ACTION_REQUEST_TORCH_PERMISSION) requestTorchPermission() else requestBluetoothPermission()
         }
 
-        val forceSettings = intent?.getBooleanExtra("force_settings", false) ?: false
+        val requestedScreen = intent?.getStringExtra("open_screen")?.takeIf { it.isNotBlank() }
+        if (savedInstanceState == null) {
+            com.example.globalminusone.ui.settings.SettingsNavigationPolicy.buildRequest(
+                requestedScreen,
+                ::nextNavigationNonce
+            )?.let { request ->
+                navigationRequestState.value = request
+            }
+        }
+        val forceSettings = (intent?.getBooleanExtra("force_settings", false) ?: false) || requestedScreen != null
         val state = repository.state.value
         val hasOverlayPermission = Settings.canDrawOverlays(this)
 
@@ -146,12 +165,17 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    GlobalMinusOneMainApp(repository = repository, onReturnToPanel = {
-                        if (Settings.canDrawOverlays(this) && repository.state.value.triggerConfig.serviceEnabled) {
-                            OverlayService.start(this, OverlayService.ACTION_OPEN_PANEL)
+                    GlobalMinusOneMainApp(
+                        repository = repository,
+                        initialScreen = navigationRequestState.value?.screen,
+                        navigationRequest = navigationRequestState.value,
+                        onReturnToPanel = {
+                            if (Settings.canDrawOverlays(this) && repository.state.value.triggerConfig.serviceEnabled) {
+                                OverlayService.start(this, OverlayService.ACTION_OPEN_PANEL)
+                            }
+                            finish()
                         }
-                        finish()
-                    })
+                    )
                 }
             }
         }

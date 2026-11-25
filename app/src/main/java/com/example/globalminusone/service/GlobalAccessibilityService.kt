@@ -5,7 +5,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.content.ComponentName
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -15,8 +14,8 @@ import android.view.accessibility.AccessibilityEvent
 import android.widget.Toast
 import com.example.globalminusone.data.MinusOneRepository
 import com.example.globalminusone.data.ActivityStatisticsStore
+import com.example.globalminusone.system.SystemAccessibilityActions
 import com.example.globalminusone.system.SystemController
-import com.example.globalminusone.system.AppSplitLauncher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,7 +26,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * 2. 监听通知栏自动提取验证码并复制到剪贴板；
  * 3. 提供全局快捷动作（返回键、桌面、多任务、切换上个应用、锁屏、截屏、通知栏、快捷设置、电源菜单、分屏等）。
  */
-class GlobalAccessibilityService : AccessibilityService() {
+class GlobalAccessibilityService : AccessibilityService(), SystemAccessibilityActions {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val notificationGate = NotificationEventGate()
@@ -51,11 +50,19 @@ class GlobalAccessibilityService : AccessibilityService() {
         if (screenReceiverRegistered) runCatching { unregisterReceiver(screenReceiver) }
         screenReceiverRegistered = false
     }
-    /** The selected-app route uses a real Activity source, never launch-then-toggle guessing. */
-    fun openApplicationInSplit(component: ComponentName): Boolean = AppSplitLauncher.open(this, component)
+
+    override fun activeWindowRoot(): android.view.accessibility.AccessibilityNodeInfo? = rootInActiveWindow
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        runCatching {
+            serviceInfo?.let { info ->
+                info.flags = info.flags or
+                    android.accessibilityservice.AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+                    android.accessibilityservice.AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
+                serviceInfo = info
+            }
+        }.onFailure { Log.w(TAG, "Could not enable accessibility node identifiers", it) }
         instance = this
         _connectedState.value = true
         systemController = SystemController(this)
@@ -258,13 +265,81 @@ class GlobalAccessibilityService : AccessibilityService() {
 
     // --- 便捷系统级全局动作 ---
 
-    fun performBack(): Boolean = performGlobalAction(GLOBAL_ACTION_BACK)
+    private fun captureDisplaySize(): Pair<Int, Int> {
+        val wm = getSystemService(android.view.WindowManager::class.java)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && wm != null) {
+            val bounds = wm.currentWindowMetrics.bounds
+            bounds.width().coerceAtLeast(1) to bounds.height().coerceAtLeast(1)
+        } else {
+            val realDm = android.util.DisplayMetrics()
+            @Suppress("DEPRECATION")
+            wm?.defaultDisplay?.getRealMetrics(realDm)
+            val fallbackDm = resources.displayMetrics
+            val w = realDm.widthPixels.takeIf { it > 0 } ?: fallbackDm.widthPixels
+            val h = realDm.heightPixels.takeIf { it > 0 } ?: fallbackDm.heightPixels
+            w.coerceAtLeast(1) to h.coerceAtLeast(1)
+        }
+    }
 
-    fun performHome(): Boolean = performGlobalAction(GLOBAL_ACTION_HOME)
+    fun dispatchSwipeGesture(
+        startX: Float,
+        startY: Float,
+        endX: Float,
+        endY: Float,
+        durationMs: Long = 280L,
+        onResult: (Boolean) -> Unit
+    ) {
+        val (screenW, screenH) = captureDisplaySize()
+        val maxW = screenW.coerceAtLeast(100).toFloat()
+        val maxH = screenH.coerceAtLeast(100).toFloat()
+        val sx = startX.coerceIn(2f, maxW - 2f)
+        val sy = startY.coerceIn(2f, maxH - 2f)
+        val ex = endX.coerceIn(2f, maxW - 2f)
+        val ey = endY.coerceIn(2f, maxH - 2f)
+        val dur = durationMs.coerceIn(140L, 650L)
 
-    fun performRecents(): Boolean = performGlobalAction(GLOBAL_ACTION_RECENTS)
+        val done = java.util.concurrent.atomic.AtomicBoolean(false)
+        fun finish(ok: Boolean) {
+            if (done.compareAndSet(false, true)) {
+                mainHandler.post { onResult(ok) }
+            }
+        }
 
-    fun performLockScreen(): Boolean {
+        val path = android.graphics.Path().apply {
+            moveTo(sx, sy)
+            lineTo(ex, ey)
+        }
+        val gesture = android.accessibilityservice.GestureDescription.Builder()
+            .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(path, 0L, dur))
+            .build()
+        mainHandler.postDelayed({ finish(false) }, dur + 900L)
+        val accepted = runCatching {
+            dispatchGesture(
+                gesture,
+                object : AccessibilityService.GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) {
+                        finish(true)
+                    }
+
+                    override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) {
+                        finish(false)
+                    }
+                },
+                mainHandler
+            )
+        }.getOrDefault(false)
+        if (!accepted) {
+            finish(false)
+        }
+    }
+
+    override fun performBack(): Boolean = performGlobalAction(GLOBAL_ACTION_BACK)
+
+    override fun performHome(): Boolean = performGlobalAction(GLOBAL_ACTION_HOME)
+
+    override fun performRecents(): Boolean = performGlobalAction(GLOBAL_ACTION_RECENTS)
+
+    override fun performLockScreen(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
         } else {
@@ -272,7 +347,7 @@ class GlobalAccessibilityService : AccessibilityService() {
         }
     }
 
-    fun performScreenshot(): Boolean {
+    override fun performScreenshot(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             performGlobalAction(GLOBAL_ACTION_TAKE_SCREENSHOT)
         } else {
@@ -322,7 +397,7 @@ class GlobalAccessibilityService : AccessibilityService() {
                         if (retryOnRateLimit && errorCode == ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT) {
                             mainHandler.postDelayed({
                                 captureSilentScreenBitmap(retryOnRateLimit = false, onResult = onResult)
-                            }, 450L)
+                            }, 1050L)
                             return
                         }
                         Log.w(TAG, "takeScreenshot failed with errorCode=$errorCode")
@@ -336,21 +411,15 @@ class GlobalAccessibilityService : AccessibilityService() {
         }
     }
 
-    fun performNotifications(): Boolean = performGlobalAction(GLOBAL_ACTION_NOTIFICATIONS)
+    override fun performNotifications(): Boolean = performGlobalAction(GLOBAL_ACTION_NOTIFICATIONS)
 
-    fun performQuickSettings(): Boolean = performGlobalAction(GLOBAL_ACTION_QUICK_SETTINGS)
+    override fun performQuickSettings(): Boolean = performGlobalAction(GLOBAL_ACTION_QUICK_SETTINGS)
 
-    fun performPowerDialog(): Boolean = performGlobalAction(GLOBAL_ACTION_POWER_DIALOG)
+    override fun performPowerDialog(): Boolean = performGlobalAction(GLOBAL_ACTION_POWER_DIALOG)
 
-    fun performSplitScreen(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            performGlobalAction(GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN)
-        } else {
-            false
-        }
-    }
+    override fun performSplitScreen(): Boolean = performGlobalAction(GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN)
 
-    fun performLastApp(): Boolean {
+    override fun performLastApp(): Boolean {
         val success = performRecents()
         if (success) {
             mainHandler.postDelayed({
@@ -358,6 +427,86 @@ class GlobalAccessibilityService : AccessibilityService() {
             }, 120L)
         }
         return success
+    }
+
+    /** Captures a sanitized snapshot of visible text, media bounds, and third-party floating overlay obstructions. */
+    fun captureAccessibilitySnapshot(): com.example.globalminusone.screenassistant.AccessibilityScreenSnapshot {
+        val activeRoot = runCatching { rootInActiveWindow }.getOrNull()
+        val extraRoots = ArrayList<android.view.accessibility.AccessibilityNodeInfo>()
+        return try {
+            val (screenW, screenH) = captureDisplaySize()
+            val screenArea = screenW.toLong() * screenH.toLong()
+            val obstructions = ArrayList<com.example.globalminusone.screenassistant.ExtractedSubImageCandidate>()
+            val allWindows = runCatching { windows }.getOrNull().orEmpty()
+            val activeLayer = allWindows
+                .filter { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION }
+                .maxOfOrNull { it.layer } ?: 0
+            for (win in allWindows) {
+                val wType = win.type
+                if (wType == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION) {
+                    val wRoot = runCatching { win.root }.getOrNull()
+                    if (wRoot != null) {
+                        val wPkg = wRoot.packageName?.toString().orEmpty()
+                        if (wPkg == packageName || wRoot == activeRoot) {
+                            @Suppress("DEPRECATION")
+                            runCatching { wRoot.recycle() }
+                        } else {
+                            extraRoots += wRoot
+                        }
+                    }
+                    if (win.layer <= activeLayer) continue
+                }
+                val isOverlayWin = wType == android.view.accessibility.AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY ||
+                    wType == android.view.accessibility.AccessibilityWindowInfo.TYPE_SYSTEM ||
+                    (wType == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION && win.layer > activeLayer)
+                if (!isOverlayWin) continue
+                val wRoot = runCatching { win.root }.getOrNull()
+                val wPkg = wRoot?.packageName?.toString().orEmpty()
+                @Suppress("DEPRECATION")
+                runCatching { wRoot?.recycle() }
+                if (wPkg == packageName) continue
+                val rect = android.graphics.Rect()
+                win.getBoundsInScreen(rect)
+                val wPx = rect.width().coerceAtLeast(0)
+                val hPx = rect.height().coerceAtLeast(0)
+                val area = wPx.toLong() * hPx.toLong()
+                // Ignore full-width status/navigation bars and oversized windows; focus on floating orbs/bubbles/mini-overlays.
+                if (wPx in 24..((screenW * 75) / 100) && hPx >= 24 && area <= (screenArea * 25L) / 100L) {
+                    obstructions.add(
+                        com.example.globalminusone.screenassistant.ExtractedSubImageCandidate(
+                            id = "ov_${obstructions.size}",
+                            leftPx = rect.left.coerceAtLeast(0),
+                            topPx = rect.top.coerceAtLeast(0),
+                            rightPx = rect.right.coerceAtMost(screenW),
+                            bottomPx = rect.bottom.coerceAtMost(screenH),
+                            sourceTag = "悬浮遮挡",
+                            confidence = 1f
+                        )
+                    )
+                }
+            }
+            val allRoots = buildList {
+                if (activeRoot != null) add(activeRoot)
+                addAll(extraRoots)
+            }
+            val base = com.example.globalminusone.screenassistant.ScreenCaptureHub.captureMultiWindowAccessibilitySnapshot(
+                rootNodes = allRoots,
+                selfPackage = packageName,
+                displayWidth = screenW,
+                displayHeight = screenH
+            )
+            base.copy(overlayObstructions = obstructions)
+        } catch (failure: Exception) {
+            Log.w(TAG, "Screen nodes changed during capture", failure)
+            com.example.globalminusone.screenassistant.AccessibilityScreenSnapshot(emptyList(), emptyList())
+        } finally {
+            @Suppress("DEPRECATION")
+            runCatching { activeRoot?.recycle() }
+            extraRoots.forEach {
+                @Suppress("DEPRECATION")
+                runCatching { it.recycle() }
+            }
+        }
     }
 
     companion object {

@@ -16,8 +16,8 @@ android {
         minSdk = 26
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 49
-        versionName = "2.4.43"
+        versionCode = 116
+        versionName = "2.4.110"
     }
 
     androidResources {
@@ -41,7 +41,20 @@ android {
         !signingKeyAlias.isNullOrBlank() &&
         !signingKeyPass.isNullOrBlank()
 
+    val compatibleDebugKeystore = listOfNotNull(
+        System.getenv("GMO_COMPAT_DEBUG_KEYSTORE"),
+        "C:/Android/.android/debug.keystore"
+    ).map(::File).firstOrNull { it.isFile }
+
     signingConfigs {
+        if (compatibleDebugKeystore != null) {
+            getByName("debug") {
+                storeFile = compatibleDebugKeystore
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
         if (hasCustomReleaseSigning) {
             create("release") {
                 storeFile = File(signingStorePath!!).let {
@@ -101,6 +114,16 @@ kotlin {
     jvmToolchain(17)
 }
 
+composeCompiler {
+    if (providers.environmentVariable("GMO_COMPOSE_METRICS").orNull == "1" ||
+        providers.gradleProperty("enableComposeCompilerReports").orNull == "true"
+    ) {
+        val outDir = layout.buildDirectory.dir("compose-metrics")
+        reportsDestination.set(outDir)
+        metricsDestination.set(outDir)
+    }
+}
+
 // Keep the forked test JVM small alongside the in-process Kotlin compiler inside the guard.
 tasks.withType<Test>().configureEach {
     minHeapSize = "32m"
@@ -116,6 +139,8 @@ dependencies {
 
     // Offline-pinned Google RE2/J 1.8; provenance and license: third_party/re2j-1.8/.
     implementation(files("libs/re2j-1.8.jar"))
+    // Compile-only Xposed API 82 ABI stub (provided at runtime by LSPosed; never packaged).
+    compileOnly(files("libs/xposed-api-82-stub.jar"))
 
     // Pinned upstream sources/artifacts and reproducible local libsu build; see third_party/.
     implementation(fileTree("../third_party/shizuku-13.1.5") { include("*.aar") })

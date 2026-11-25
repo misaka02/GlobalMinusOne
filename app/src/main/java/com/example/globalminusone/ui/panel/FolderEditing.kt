@@ -1,5 +1,6 @@
 package com.example.globalminusone.ui.panel
 
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -7,12 +8,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 
 /** A folder owns its editing session; opening a child menu must not enable panel editing. */
-internal val LocalFolderEditing = staticCompositionLocalOf { false }
-internal val LocalFolderIconSizeDp = staticCompositionLocalOf<Int?> { null }
-internal val LocalFolderGridSpacing = staticCompositionLocalOf<com.example.globalminusone.data.ContainerIconVerticalSpacing?> { null }
+internal val LocalFolderEditing = compositionLocalOf { false }
+internal val LocalFolderIconSizeDp = compositionLocalOf<Int?> { null }
+internal val LocalFolderGridSpacing = compositionLocalOf<com.example.globalminusone.data.ContainerIconVerticalSpacing?> { null }
 internal val LocalFolderEditAction = staticCompositionLocalOf<(() -> Unit)?> { null }
 internal val LocalFolderOpenProperties = staticCompositionLocalOf<((com.example.globalminusone.data.ComponentItem) -> Unit)?> { null }
-internal val LocalInContainerChild = staticCompositionLocalOf { false }
+internal val LocalInContainerChild = compositionLocalOf { false }
 
 /** Tracks a folder temporarily closed for `AddComponentModal` / external pickers so it reopens automatically. */
 internal class FolderReturnState {

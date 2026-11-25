@@ -1,13 +1,10 @@
 package com.example.globalminusone.ui.panel
 
-import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.layout.ContentScale
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -34,13 +31,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -65,12 +63,23 @@ fun AppWidgetComponent(
     item: ComponentItem,
     widgetHostManager: WidgetHostManager
 ) {
+    AppWidgetCardContent(item, rememberWidgetCardViewFactory(widgetHostManager))
+}
+
+@Composable
+internal fun AppWidgetCardContent(
+    item: ComponentItem,
+    factory: WidgetCardViewFactory,
+    onLongPressEdit: (() -> Unit)? = null
+) {
     val cardColors = LocalCardColors.current
     val context = LocalContext.current
+    val isEditMode = LocalIsEditMode.current
+    val currentOnLongPressEdit by rememberUpdatedState(onLongPressEdit)
 
-    val hostView = remember(widgetHostManager, context, item.widgetId) {
+    val hostView = remember(factory, context, item.widgetId) {
         if (item.widgetId > 0) {
-            widgetHostManager.createHostView(context, item.widgetId)
+            factory.createHostView(context, item.widgetId)
         } else null
     }
 
@@ -88,33 +97,22 @@ fun AppWidgetComponent(
             inheritedBackground.luminance() >= 0.8f
         AndroidView(
             factory = { ctx ->
-                android.widget.FrameLayout(ctx).apply {
-                    if (hostView.parent == null) addView(
-                        hostView,
-                        android.widget.FrameLayout.LayoutParams(
-                            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                            android.widget.FrameLayout.LayoutParams.MATCH_PARENT
-                        )
-                    )
+                android.widget.FrameLayout(ctx).also { container ->
+                    syncAndAttachWidgetHostView(container, hostView, isEditMode) {
+                        currentOnLongPressEdit?.invoke()
+                    }
                 }
             },
             update = { container ->
-                // A cached widget may also be visible in another page/container.
-                // Never detach that owner's live view to satisfy this rendering.
-                if (hostView.parent == null) {
-                    container.removeAllViews()
-                    container.addView(
-                        hostView,
-                        android.widget.FrameLayout.LayoutParams(
-                            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                            android.widget.FrameLayout.LayoutParams.MATCH_PARENT
-                        )
-                    )
+                syncAndAttachWidgetHostView(container, hostView, isEditMode) {
+                    currentOnLongPressEdit?.invoke()
                 }
             },
-            onRelease = { container -> container.removeAllViews() },
+            onRelease = { container ->
+                (hostView as? WidgetHostManager.SafeAppWidgetHostView)?.clearHostCallbacks()
+                container.removeAllViews()
+            },
             modifier = Modifier.fillMaxSize()
-                .ownPanelScrollGestures(!LocalIsEditMode.current, lockFromDown = true)
                 .background(if (needsClockBacking) Color(0xFF202124) else Color.Transparent)
         )
     } else {
@@ -128,55 +126,98 @@ fun AppWidgetComponent(
     }
 }
 
+private fun syncAndAttachWidgetHostView(
+    container: android.widget.FrameLayout,
+    hostView: android.appwidget.AppWidgetHostView,
+    isEditMode: Boolean,
+    onLongPressEdit: () -> Unit
+) {
+    (hostView as? WidgetHostManager.SafeAppWidgetHostView)?.apply {
+        blockInteractionForEdit = isEditMode
+        onHostLongPress = if (!isEditMode) onLongPressEdit else null
+    }
+    val previousParent = hostView.parent as? android.view.ViewGroup
+    if (previousParent != null && previousParent !== container && !previousParent.isAttachedToWindow) {
+        previousParent.removeView(hostView)
+    }
+    if (hostView.parent == null) {
+        container.removeAllViews()
+        container.addView(
+            hostView,
+            android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+    }
+}
+
 @Composable
 fun SingleImageComponent(
     item: ComponentItem,
     onOpenMainApp: () -> Unit
 ) {
+    SingleImageCardContent(item, onOpenMainApp) { source -> MinusOneRepository.getInstance(source).imageAccessRevisions }
+}
+
+@Composable
+internal fun SingleImageCardContent(
+    item: ComponentItem, onOpenMainApp: () -> Unit,
+    imageRevisions: (android.content.Context) -> kotlinx.coroutines.flow.StateFlow<Map<String, Long>>
+) {
     val context = LocalContext.current
     val cardColors = LocalCardColors.current
     val isEditMode = LocalIsEditMode.current
     val rawUri = item.imageUri.trim()
-    val accessRevisions by remember(context) { MinusOneRepository.getInstance(context).imageAccessRevisions }.collectAsState()
+    val accessRevisions by remember(context) { imageRevisions(context) }.collectAsState()
     val accessRevision = accessRevisions[rawUri] ?: 0L
+    val cachedBitmap = remember(rawUri, accessRevision) {
+        if (rawUri.isNotEmpty()) {
+            com.example.globalminusone.system.peekCardImageBitmap(rawUri, revision = accessRevision)
+        } else null
+    }
 
-    val decodeState by produceState<Triple<String, Bitmap?, String?>>(
-        initialValue = Triple("", null, null),
+    val decodeState by produceState<Triple<String, ImageBitmap?, String?>>(
+        initialValue = if (rawUri.isNotEmpty()) Triple(rawUri, cachedBitmap, null) else Triple("", null, null),
         key1 = context,
         key2 = rawUri,
         key3 = accessRevision
     ) {
-        // Keep the last good image while the same resource is refreshed. Never show an old URI's image.
-        if (value.first != rawUri || value.second == null) value = Triple(rawUri, null, null)
         if (rawUri.isEmpty()) {
+            value = Triple("", null, null)
             return@produceState
         }
-        val decoded: Pair<Bitmap?, String?> = withContext(Dispatchers.IO) {
-            try {
-                com.example.globalminusone.system.loadCardImage(context, rawUri) to null
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                android.util.Log.w("CardImage", "Decode failed: ${failure.javaClass.simpleName}")
-                null to when (failure) {
-                    is SecurityException -> "图片读取权限已失效"
-                    is java.io.FileNotFoundException -> "图片已移动或无法访问"
-                    else -> "图片内容无法解码或不完整"
-                }
-            } catch (_: OutOfMemoryError) {
-                null to "图片过大，暂时无法加载"
+        val peeked = com.example.globalminusone.system.peekCardImageBitmap(rawUri, revision = accessRevision)
+        if (peeked != null) {
+            value = Triple(rawUri, peeked, null)
+            return@produceState
+        }
+        // Keep the last good image while the same resource is refreshed. Never show an old URI's image.
+        if (value.first != rawUri || value.second == null) value = Triple(rawUri, null, null)
+        val decoded: Pair<ImageBitmap?, String?> = try {
+            com.example.globalminusone.system.loadCardImageBitmap(context, rawUri, revision = accessRevision) to null
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            android.util.Log.w("CardImage", "Decode failed: ${failure.javaClass.simpleName}")
+            null to when (failure) {
+                is SecurityException -> "图片读取权限已失效"
+                is java.io.FileNotFoundException -> "图片已移动或无法访问"
+                else -> "图片内容无法解码或不完整"
             }
+        } catch (_: OutOfMemoryError) {
+            null to "图片过大，暂时无法加载"
         }
         value = Triple(rawUri, decoded.first, decoded.second)
     }
 
-    val bitmap = decodeState.second.takeIf { decodeState.first == rawUri }
-    val loadFailed = decodeState.first == rawUri && decodeState.third != null
+    val bitmap = cachedBitmap ?: decodeState.second.takeIf { decodeState.first == rawUri }
+    val loadFailed = bitmap == null && decodeState.first == rawUri && decodeState.third != null
 
     when {
         rawUri.isNotEmpty() && bitmap != null -> {
             Image(
-                bitmap = bitmap.asImageBitmap(),
+                bitmap = bitmap,
                 contentDescription = item.title.ifBlank { "图片卡片" },
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
@@ -238,10 +279,18 @@ fun WebsiteLinkComponent(
     repository: MinusOneRepository,
     onRequestClose: () -> Unit
 ) {
+    WebsiteLinkCardContent(state.appearanceConfig, { repository.updateAppearanceConfig(it) }, onRequestClose)
+}
+
+@Composable
+internal fun WebsiteLinkCardContent(
+    appearance: com.example.globalminusone.data.AppearanceConfig,
+    onAppearanceChange: ((com.example.globalminusone.data.AppearanceConfig) -> com.example.globalminusone.data.AppearanceConfig) -> Unit,
+    onRequestClose: () -> Unit
+) {
     val context = LocalContext.current
     val cardColors = LocalCardColors.current
     val isEditMode = LocalIsEditMode.current
-    val appearance = state.appearanceConfig
     var searchInput by remember { mutableStateOf("") }
     var isEngineMenuOpen by remember { mutableStateOf(false) }
 
@@ -282,18 +331,18 @@ fun WebsiteLinkComponent(
                 )
             }
 
-            DropdownMenu(
+            PanelDropdownMenu(
                 expanded = isEngineMenuOpen,
                 onDismissRequest = { isEngineMenuOpen = false }
             ) {
-                com.example.globalminusone.service.Android12WindowKeyGuard()
+                com.example.globalminusone.ui.Android12WindowKeyGuard()
 
                 DefaultPresets.searchEngines.forEach { (engineName, engineUrl) ->
-                    DropdownMenuItem(
+                    PanelMenuItem(
                         text = { Text(text = engineName, fontSize = 12.sp) },
                         onClick = {
                             isEngineMenuOpen = false
-                            repository.updateAppearanceConfig {
+                            onAppearanceChange {
                                 it.copy(searchEngineName = engineName, searchEngineUrl = engineUrl)
                             }
                         }

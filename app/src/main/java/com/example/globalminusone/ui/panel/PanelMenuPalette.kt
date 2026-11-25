@@ -1,12 +1,19 @@
 package com.example.globalminusone.ui.panel
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.PopupProperties
 
 internal data class PanelMenuPalette(
     val background: Color, val text: Color, val secondary: Color, val accent: Color,
@@ -56,23 +63,63 @@ internal fun resolvePanelMenuPalette(base: PanelPalette): PanelMenuPalette {
 internal val LocalPanelMenuPalette = staticCompositionLocalOf<PanelMenuPalette?> { null }
 
 @Composable
-internal fun PanelDropdownMenu(expanded: Boolean, onDismissRequest: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+internal fun PanelDropdownMenu(
+    expanded: Boolean,
+    onDismissRequest: () -> Unit,
+    properties: PopupProperties = PopupProperties(focusable = true),
+    content: @Composable ColumnScope.() -> Unit
+) {
     val palette = resolvePanelMenuPalette(LocalPanelPalette.current)
-    val scheme = MaterialTheme.colorScheme.copy(surface = palette.background,
-        surfaceContainer = palette.background, surfaceContainerHigh = palette.background,
-        onSurface = palette.text, onSurfaceVariant = palette.secondary, primary = palette.accent,
-        outlineVariant = palette.divider, error = palette.danger)
+    val scheme = MaterialTheme.colorScheme.copy(
+        surface = palette.background,
+        surfaceContainer = palette.background,
+        surfaceContainerHigh = palette.background,
+        onSurface = palette.text,
+        onSurfaceVariant = palette.secondary,
+        primary = palette.accent,
+        outlineVariant = palette.divider,
+        error = palette.danger
+    )
     MaterialTheme(colorScheme = scheme) {
         CompositionLocalProvider(LocalPanelMenuPalette provides palette) {
-            DropdownMenu(expanded = expanded, onDismissRequest = onDismissRequest,
-                containerColor = palette.background, tonalElevation = 0.dp, content = content)
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = onDismissRequest,
+                properties = properties,
+                shape = RoundedCornerShape(14.dp),
+                containerColor = palette.background,
+                tonalElevation = 0.dp,
+                shadowElevation = 8.dp,
+                border = BorderStroke(0.8.dp, palette.divider.copy(alpha = 0.7f)),
+                content = content
+            )
         }
     }
 }
 
 @Composable
-internal fun PanelMenuItem(text: @Composable () -> Unit, enabled: Boolean = true, onClick: () -> Unit) {
+internal fun PanelMenuSectionTitle(title: String) {
     val palette = checkNotNull(LocalPanelMenuPalette.current)
-    DropdownMenuItem(text = text, enabled = enabled, onClick = onClick,
-        colors = MenuDefaults.itemColors(textColor = palette.text, disabledTextColor = palette.disabled))
+    Text(
+        text = title,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = palette.secondary,
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+    )
+}
+
+@Composable
+internal fun PanelMenuItem(
+    text: @Composable () -> Unit,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    val palette = checkNotNull(LocalPanelMenuPalette.current)
+    DropdownMenuItem(
+        text = text,
+        enabled = enabled,
+        onClick = onClick,
+        colors = MenuDefaults.itemColors(textColor = palette.text, disabledTextColor = palette.disabled)
+    )
 }

@@ -6,20 +6,71 @@ import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
+import android.util.LruCache
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import com.example.globalminusone.data.CARD_IMAGE_MAX_EDGE
+import com.example.globalminusone.data.cardImageCacheKey
 import com.example.globalminusone.data.cardImageTargetSize
 import com.example.globalminusone.data.readCardImageBytes
 import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
-private val imageDecodeSlots = Semaphore(2)
+private data class CachedCardImage(val bitmap: Bitmap, val imageBitmap: ImageBitmap)
 
-internal suspend fun loadCardImage(context: Context, rawUri: String, maxEdge: Int = CARD_IMAGE_MAX_EDGE): Bitmap = imageDecodeSlots.withPermit {
-    withContext(Dispatchers.IO) { decodeCardImage(context, rawUri, maxEdge) }
+private val imageDecodeSlots = Semaphore(2)
+private val cardImageStripes = Array(8) { Mutex() }
+private val cardImageMemoryCache = object : LruCache<String, CachedCardImage>(
+    (Runtime.getRuntime().maxMemory() / 16L).coerceIn(8L * 1024 * 1024, 24L * 1024 * 1024).toInt()
+) {
+    override fun sizeOf(key: String, value: CachedCardImage): Int = value.bitmap.allocationByteCount.coerceAtLeast(1)
+}
+
+internal fun peekCardImageBitmap(rawUri: String, maxEdge: Int = CARD_IMAGE_MAX_EDGE, revision: Long = 0L): ImageBitmap? {
+    val trimmed = rawUri.trim()
+    if (trimmed.isEmpty()) return null
+    return cardImageMemoryCache.get(cardImageCacheKey(trimmed, maxEdge, revision))?.imageBitmap
+}
+
+internal suspend fun loadCardImageBitmap(
+    context: Context,
+    rawUri: String,
+    maxEdge: Int = CARD_IMAGE_MAX_EDGE,
+    revision: Long = 0L
+): ImageBitmap = loadCardImageEntry(context, rawUri, maxEdge, revision).imageBitmap
+
+internal suspend fun loadCardImage(context: Context, rawUri: String, maxEdge: Int = CARD_IMAGE_MAX_EDGE): Bitmap =
+    loadCardImageEntry(context, rawUri, maxEdge, revision = 0L).bitmap
+
+private suspend fun loadCardImageEntry(context: Context, rawUri: String, maxEdge: Int, revision: Long): CachedCardImage {
+    val key = cardImageCacheKey(rawUri, maxEdge, revision)
+    cardImageMemoryCache.get(key)?.let { return it }
+    val stripe = cardImageStripes[(key.hashCode() and 0x7fffffff) % cardImageStripes.size]
+    return stripe.withLock {
+        cardImageMemoryCache.get(key)?.let { return@withLock it }
+        val entry = imageDecodeSlots.withPermit {
+            withContext(Dispatchers.IO) {
+                val bitmap = decodeCardImage(context, rawUri, maxEdge)
+                CachedCardImage(bitmap = bitmap, imageBitmap = bitmap.asImageBitmap())
+            }
+        }
+        cardImageMemoryCache.put(key, entry)
+        entry
+    }
+}
+
+internal fun trimCardImageCache(clearAll: Boolean) {
+    if (clearAll) {
+        cardImageMemoryCache.evictAll()
+    } else {
+        cardImageMemoryCache.trimToSize((cardImageMemoryCache.maxSize() / 2).coerceAtLeast(1))
+    }
 }
 
 /** Worker-thread decoder. Never retain a provider stream or an activity after decoding. */

@@ -1,29 +1,21 @@
 package com.example.globalminusone.ui.panel
 
-import androidx.compose.ui.draw.drawBehind
-
-import androidx.compose.runtime.setValue
-
-import androidx.compose.runtime.getValue
-
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateOffsetAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.CoroutineStart
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Spacer
@@ -33,11 +25,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,25 +34,24 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.key
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.collect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
@@ -77,8 +65,11 @@ import com.example.globalminusone.data.PageConfig
 import com.example.globalminusone.data.componentDisplayRows
 import com.example.globalminusone.service.WidgetHostManager
 import com.example.globalminusone.system.SystemController
+import com.example.globalminusone.ui.motion.MotionTokens
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+
+private data class FreeGridCellBounds(val x: Int, val y: Int, val w: Int, val h: Int)
 
 @Composable
 fun FreeLayoutPage(
@@ -109,18 +100,88 @@ fun FreeLayoutPage(
         } else stepX
 
         val stepYDp = with(density) { stepY.toDp().value }
-        val expansion = compactCurtainFractions()
-        val displayItems = remember(page.components, pageWidthPx, gridCols, stepYDp, density.fontScale, state.advancedConfig.heightUnitDp, expansion) {
-            fun measure(fractions: Map<String, Float>) = page.components.map { original ->
+        val expansion = compactCurtainFractions(page.components)
+        val displayLayout = remember(page.components, pageWidthPx, stepX, stepY, gridCols, stepYDp, density.fontScale, state.advancedConfig.heightUnitDp, expansion) {
+            fun isSmoothCompact(item: ComponentItem): Boolean =
+                item.type == ComponentType.CONTAINER_BOX && item.containerCompact
+
+            fun measureRows(fractions: Map<String, Float>) = page.components.map { original ->
                 val widthDp = with(density) { (original.w.coerceIn(1, gridCols) * stepX).toDp().value }
                 original.copy(w = original.w.coerceIn(1, gridCols), h = componentDisplayRows(original, widthDp, stepYDp, gridCols,
                     state.advancedConfig.heightUnitDp, density.fontScale, fractions))
             }
-            val measured = measure(expansion)
-            if (expansion.isEmpty()) measured else com.example.globalminusone.data.displaceExpandedContainerRows(
-                page.components, measure(emptyMap()), measured)
+
+            fun measureHeightPx(item: ComponentItem, fractions: Map<String, Float>): Float {
+                val clampedW = item.w.coerceIn(1, gridCols)
+                val widthDp = with(density) { (clampedW * stepX).toDp().value }
+                return if (isSmoothCompact(item)) {
+                    with(density) {
+                        com.example.globalminusone.data.componentDisplayHeightDp(
+                            item = item.copy(w = clampedW),
+                            outerWidthDp = widthDp,
+                            gridColumns = gridCols,
+                            configuredHeightUnitDp = state.advancedConfig.heightUnitDp,
+                            fontScale = density.fontScale,
+                            compactExpansion = fractions
+                        ).coerceAtLeast(36f).dp.toPx()
+                    }
+                } else {
+                    componentDisplayRows(
+                        item.copy(w = clampedW),
+                        widthDp,
+                        stepYDp,
+                        gridCols,
+                        state.advancedConfig.heightUnitDp,
+                        density.fontScale,
+                        fractions
+                    ) * stepY
+                }
+            }
+
+            val baseRows = measureRows(emptyMap())
+            val baseHeightById = page.components.associate { it.id to measureHeightPx(it, emptyMap()) }
+            val shownHeightById = page.components.associate { it.id to measureHeightPx(it, expansion) }
+            val baseRowMap = baseRows.associateBy { it.id }
+
+            val placedTopPx = HashMap<String, Float>(page.components.size)
+            page.components.sortedBy { it.y }.forEach { item ->
+                val shiftPx = page.components.asSequence().filter { other ->
+                    other.id != item.id && other.y < item.y &&
+                        other.y + (baseRowMap[other.id]?.h ?: other.h) <= item.y
+                }.mapNotNull { other ->
+                    val top = placedTopPx[other.id] ?: (other.y * stepY)
+                    val shownH = shownHeightById[other.id] ?: (other.h * stepY)
+                    val baseBottom = other.y * stepY + (baseHeightById[other.id] ?: (other.h * stepY))
+                    top + shownH - baseBottom
+                }.maxOrNull()?.coerceAtLeast(0f) ?: 0f
+                placedTopPx[item.id] = item.y * stepY + shiftPx
+            }
+
+            val items = page.components.map { item ->
+                val clampedW = item.w.coerceIn(1, gridCols)
+                val hPx = shownHeightById[item.id] ?: (item.h * stepY)
+                val hRows = kotlin.math.ceil(hPx / stepY.coerceAtLeast(1f)).toInt().coerceAtLeast(1)
+                val topPx = placedTopPx[item.id] ?: (item.y * stepY)
+                val yRows = (topPx / stepY.coerceAtLeast(1f)).roundToInt()
+                item.copy(w = clampedW, h = hRows, y = yRows)
+            }
+            val bounds = page.components.map { item ->
+                val clampedW = item.w.coerceIn(1, gridCols)
+                val topPx = placedTopPx[item.id] ?: (item.y * stepY)
+                val hPx = shownHeightById[item.id] ?: (item.h * stepY)
+                androidx.compose.ui.geometry.Rect(
+                    left = item.x * stepX,
+                    top = topPx,
+                    right = (item.x + clampedW) * stepX,
+                    bottom = topPx + hPx
+                )
+            }
+            items to bounds
         }
-        val maxRow = (displayItems.maxOfOrNull { it.y + it.h } ?: 35) + 12
+        val displayItems = displayLayout.first
+        val displayBoundsList = displayLayout.second
+        val maxContentPx = displayBoundsList.maxOfOrNull { it.bottom } ?: (35f * stepY)
+        val maxRow = kotlin.math.ceil(maxContentPx / stepY.coerceAtLeast(1f)).toInt() + 12
         val viewportMemory = LocalPageViewport.current ?: remember(page.id) { PageViewportMemory() }
         val pageActive = LocalPageViewportActive.current
         val viewportRevision = viewportMemory.restoreRevision
@@ -147,7 +208,13 @@ fun FreeLayoutPage(
         // A smaller last-card footprint must not clamp scroll and move the released card away
         // from its live preview. This display floor shrinks naturally when the user scrolls up.
         val bottomSafePx = with(density) { 44.dp.toPx() }
-        val canvasHeightPx = maxOf(dragCanvasEnd, stableContentExtent(maxRow * stepY + bottomSafePx, scrollState.value, constraints.maxHeight.toFloat()))
+        val baseCanvasHeightPx = maxRow * stepY + bottomSafePx
+        val viewportMaxHeightPx = constraints.maxHeight.toFloat()
+        val canvasHeightPx by remember(scrollState, dragCanvasEnd, baseCanvasHeightPx, viewportMaxHeightPx) {
+            derivedStateOf {
+                maxOf(dragCanvasEnd, stableContentExtent(baseCanvasHeightPx, scrollState.value, viewportMaxHeightPx))
+            }
+        }
         val canvasHeightDp = with(density) { canvasHeightPx.toDp() }
 
         var activeInteractingId by remember { mutableStateOf<String?>(null) }
@@ -209,10 +276,11 @@ fun FreeLayoutPage(
                 LocalPanelScrollTarget provides scrollTarget) {
             page.components.forEachIndexed { itemIndex, item -> key(item.id) {
                 val displayItem = displayItems[itemIndex]
+                val displayBounds = displayBoundsList[itemIndex]
                 val isSelected = isEditMode && activeSelId == item.id
 
                 FreeLayoutComponentSlot(
-                    item = displayItem,
+                    item = item,
                     itemIndex = itemIndex,
                     pageIndex = pageIndex,
                     gridCols = gridCols,
@@ -223,6 +291,7 @@ fun FreeLayoutPage(
                     maxResizeRows = 120,
                     isEditMode = isEditMode,
                     isSelected = isSelected,
+                    displayBoundsPx = displayBounds,
                     onSelect = {
                         if (isSelected && item.type == ComponentType.FOLDER) {
                             folderReturn?.openNow(item.id)
@@ -246,30 +315,22 @@ fun FreeLayoutPage(
                         repository.selectComponent(item.id)
                     },
                     content = {
-                        Box(
-                            Modifier.fillMaxSize().ownPanelScrollGestures(
-                                enabled = item.type.ownsPanelScrolling() && !isEditMode,
-                                lockFromDown = com.example.globalminusone.data.isSliderBarType(item.type),
-                                axis = panelScrollAxisForComponent(item)
-                            )
-                        ) {
-                            RenderComponentItem(
-                                item = item,
-                                pageIndex = pageIndex,
-                                state = state,
-                                repository = repository,
-                                systemController = systemController,
-                                widgetHostManager = widgetHostManager,
-                                isEditMode = isEditMode,
-                                isSelected = isSelected,
-                                onBrightnessAdjusting = onBrightnessAdjusting,
-                                onRequestClose = onRequestClose,
-                                onOpenMainApp = onOpenMainApp,
-                                onOpenEditDialog = onOpenEditDialog,
-                                onOpenBottomNineKeyBar = onOpenBottomNineKeyBar,
-                                onOpenAddComponent = onOpenAddComponent
-                            )
-                        }
+                        RenderComponentItem(
+                            item = item,
+                            pageIndex = pageIndex,
+                            state = state,
+                            repository = repository,
+                            systemController = systemController,
+                            widgetHostManager = widgetHostManager,
+                            isEditMode = isEditMode,
+                            isSelected = isSelected,
+                            onBrightnessAdjusting = onBrightnessAdjusting,
+                            onRequestClose = onRequestClose,
+                            onOpenMainApp = onOpenMainApp,
+                            onOpenEditDialog = onOpenEditDialog,
+                            onOpenBottomNineKeyBar = onOpenBottomNineKeyBar,
+                            onOpenAddComponent = onOpenAddComponent
+                        )
                     }
                 )
             } }
@@ -391,7 +452,7 @@ fun FreeLayoutComponentSlot(
         dy: Float = resizeDy,
         dw: Float = resizeDw,
         dh: Float = resizeDh
-    ): IntArray {
+    ): FreeGridCellBounds {
         val sX = if (currentStepX > 0f) currentStepX else 1f
         val sY = if (currentStepY > 0f) currentStepY else 1f
         val cols = currentGridCols
@@ -418,50 +479,71 @@ fun FreeLayoutComponentSlot(
         val deltaBottom = (dh / sY).roundToInt()
         val newH = (currentItem.h + deltaTop + deltaBottom).coerceIn(2, maxResizeRows.coerceIn(2, 120))
 
-        return intArrayOf(newX, newY, newW, newH)
+        return FreeGridCellBounds(newX, newY, newW, newH)
     }
 
-    val currentBounds = if (isDragging) {
-        intArrayOf(computeDraggedX(), computeDraggedY(), currentItem.w, currentItem.h)
-    } else if (isResizing) {
-        computeResizedBounds()
-    } else {
-        intArrayOf(currentItem.x, currentItem.y, currentItem.w, currentItem.h)
+    val currentBounds by remember {
+        derivedStateOf {
+            when {
+                isDragging -> FreeGridCellBounds(computeDraggedX(), computeDraggedY(), currentItem.w, currentItem.h)
+                isResizing -> computeResizedBounds()
+                else -> FreeGridCellBounds(currentItem.x, currentItem.y, currentItem.w, currentItem.h)
+            }
+        }
     }
 
-    val liveX = currentBounds[0]
-    val liveY = currentBounds[1]
-    val liveW = currentBounds[2]
-    val liveH = currentBounds[3]
+    val liveX = currentBounds.x
+    val liveY = currentBounds.y
+    val liveW = currentBounds.w
+    val liveH = currentBounds.h
 
     val displayOffset = displayBoundsPx?.let { Offset(it.left - item.x * stepX, it.top - item.y * stepY) } ?: Offset.Zero
     val displayWidthDelta = displayBoundsPx?.let { it.width - item.w * stepX } ?: 0f
     val displayHeightDelta = displayBoundsPx?.let { it.height - item.h * stepY } ?: 0f
     val animMs = LocalPanelPalette.current.themeConfig.animationDurationMs.coerceIn(0, 800)
     val latestAnimMs by rememberUpdatedState(animMs)
-    val sizeAnimSpecFloat = if (isResizing || animMs <= 0) snap<Float>() else tween<Float>(durationMillis = animMs)
-    val animatedWidth by animateFloatAsState((liveW * stepX + displayWidthDelta).coerceAtLeast(1f), sizeAnimSpecFloat, label = "card-width")
-    val animatedHeight by animateFloatAsState((liveH * stepY + displayHeightDelta).coerceAtLeast(1f), sizeAnimSpecFloat, label = "card-height")
-    val itemWidthDp = with(density) { animatedWidth.toDp() }
-    val itemHeightDp = with(density) { animatedHeight.toDp() }
+    val targetWidthPx = (liveW * stepX + displayWidthDelta).coerceAtLeast(1f)
+    val targetHeightPx = (liveH * stepY + displayHeightDelta).coerceAtLeast(1f)
+    val animateSize = (effectiveEditMode || animatePlacement) && animMs > 0
+    val sizeAnimSpecFloat = if (isResizing || !animateSize) snap<Float>() else MotionTokens.cardSettleSpring(animMs)
+    val animatedWidthState = if (animateSize) animateFloatAsState(targetWidthPx, sizeAnimSpecFloat, label = "card-width") else null
+    val animatedHeightState = if (animateSize) animateFloatAsState(targetHeightPx, sizeAnimSpecFloat, label = "card-height") else null
     fun draggedPixels(): Offset = Offset(
         (dragOrigin.x + dragDx).coerceIn(0f, (pageWidthPx - (currentDisplayBounds?.width ?: (currentItem.w * currentStepX))).coerceAtLeast(0f)),
         (dragOrigin.y + dragDy + ((currentViewport?.consumedScroll ?: 0f) - dragScrollStart)).coerceAtLeast(0f))
     val positionTarget = if (isDragging) draggedPixels() else Offset(liveX * stepX, liveY * stepY) + displayOffset
-    val placement by animateOffsetAsState(positionTarget,
-        if (isDragging || !dragEnabled || !animatePlacement || animMs <= 0) snap() else tween(durationMillis = animMs), label = "container-position")
-    val drawnPosition = if (isDragging) draggedPixels() else if (animatePlacement) placement else positionTarget + releaseOffset.value
+    val animatePosition = dragEnabled && animatePlacement && animMs > 0
+    val placementState = if (animatePosition) animateOffsetAsState(positionTarget,
+        if (isDragging) snap() else MotionTokens.cardOffsetSpring(animMs), label = "container-position") else null
     val snapPosition = (if (dragReorders) Offset(item.x * stepX, item.y * stepY) else Offset(liveX * stepX, liveY * stepY)) + displayOffset
     LaunchedEffect(isDragging, liveX, liveY) { if (isDragging) currentOnDragPreview?.invoke(liveX, liveY) }
-    LaunchedEffect(isDragging, drawnPosition) { if (isDragging) currentOnDragPreviewPx?.invoke(drawnPosition.x, drawnPosition.y) }
-    if (isDragging) Box(Modifier.offset { IntOffset(snapPosition.x.roundToInt(), snapPosition.y.roundToInt()) }
-        .size(itemWidthDp, itemHeightDp).background(LocalPanelPalette.current.accent.copy(alpha = .10f), RoundedCornerShape(10.dp))
-        .border(2.dp, LocalPanelPalette.current.accent.copy(alpha = .55f), RoundedCornerShape(10.dp)))
+    LaunchedEffect(isDragging) {
+        if (!isDragging) return@LaunchedEffect
+        snapshotFlow { draggedPixels() }.collect { currentOnDragPreviewPx?.invoke(it.x, it.y) }
+    }
+    if (isDragging) CardDropPlaceholder(
+        offsetProvider = { IntOffset(snapPosition.x.roundToInt(), snapPosition.y.roundToInt()) },
+        widthPx = { (animatedWidthState?.value ?: targetWidthPx).roundToInt() },
+        heightPx = { (animatedHeightState?.value ?: targetHeightPx).roundToInt() },
+        accentColor = selectionColor,
+        fillAlpha = 0.10f
+    )
 
     Box(
         modifier = Modifier
-            .offset { IntOffset(drawnPosition.x.roundToInt(), drawnPosition.y.roundToInt()) }
-            .size(width = itemWidthDp, height = itemHeightDp)
+            .offset {
+                val drawn = if (isDragging) draggedPixels()
+                    else if (animatePlacement) (placementState?.value ?: positionTarget)
+                    else positionTarget + releaseOffset.value
+                IntOffset(drawn.x.roundToInt(), drawn.y.roundToInt())
+            }
+            .layout { measurable, _ ->
+                // Read animated bounds in layout phase to avoid recomposing the card while settling.
+                val w = (animatedWidthState?.value ?: targetWidthPx).roundToInt().coerceAtLeast(1)
+                val h = (animatedHeightState?.value ?: targetHeightPx).roundToInt().coerceAtLeast(1)
+                val placeable = measurable.measure(Constraints.fixed(w, h))
+                layout(w, h) { placeable.placeRelative(0, 0) }
+            }
             .zIndex(if (isDragging || isResizing) 2f else if (isSelected) 1f else 0f)
             // The edit detector claims scrolling only after a stationary hold.
             // An ordinary swipe on a card must still scroll or change pages.
@@ -472,20 +554,17 @@ fun FreeLayoutComponentSlot(
             }
     ) {
         // 1. 卡片主体内容（底层渲染，普通模式下长按可唤起编辑模式）
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .ownPanelScrollGestures(!effectiveEditMode && item.type.ownsPanelScrolling(),
-                    lockFromDown = com.example.globalminusone.data.isSliderBarType(item.type),
-                    axis = panelScrollAxisForComponent(item, itemWidthDp.value, itemHeightDp.value))
-                .cardLongPressToEdit(item.id, !dragEnabled && !layoutLocked &&
-                    currentOnEnterEditMode != null && !LocalInContainerChild.current &&
-                    item.type !in setOf(ComponentType.APP_ICON, ComponentType.APP_DRAWER_CARD, ComponentType.RECENT_APPS_CARD, ComponentType.CONTAINER_BOX, ComponentType.FOLDER)) {
-                    currentOnEnterEditMode?.invoke()
-                }
-        ) {
-            content()
-        }
+        CardSlotBodyLayer(
+            item = item,
+            widthDp = with(density) { targetWidthPx.toDp().value },
+            heightDp = with(density) { targetHeightPx.toDp().value },
+            isEditMode = effectiveEditMode,
+            dragEnabled = dragEnabled,
+            layoutLocked = layoutLocked,
+            allowCardLongPress = currentOnEnterEditMode != null && !LocalInContainerChild.current,
+            onEnterEditMode = { currentOnEnterEditMode?.invoke() },
+            content = content
+        )
 
         // 2. 编辑模式下：覆盖在 content() 上方的全尺寸透明触控拦截层
         // 核心：上层兄弟节点优先捕获触摸事件，杜绝子组件中 .clickable / Slider / BasicTextField 抢占拖拽！
@@ -495,15 +574,9 @@ fun FreeLayoutComponentSlot(
                     .then(if (effectiveEditMode) cardEditDragTarget(item) else Modifier.fillMaxSize())
                     .onGloballyPositioned { dragTargetCoordinates[0] = it }
                     .pointerInput(item.id, onStationaryLongPress != null) {
-                        val screen = IntArray(2); val window = IntArray(2)
                         detectStationaryDragGestures(
                             ownership = holdOwnership,
-                            positionInStableSpace = { point ->
-                                dragHostView.getLocationOnScreen(screen)
-                                dragHostView.getLocationInWindow(window)
-                                val inWindow = dragTargetCoordinates[0]?.takeIf { it.isAttached }?.localToWindow(point) ?: point
-                                inWindow + Offset((screen[0] - window[0]).toFloat(), (screen[1] - window[1]).toFloat())
-                            },
+                            positionInStableSpaceFactory = stableScreenPositionFactory(dragHostView) { dragTargetCoordinates[0] },
                             onTap = { if (currentEditMode) currentOnSelect() else currentOnContentTap?.invoke() },
                             onStationaryLongPress = onStationaryLongPress?.let { { currentOnStationaryLongPress?.invoke() } },
                             onLongPressPreview = onLongPressPreview?.let { { currentOnLongPressPreview?.invoke() } },
@@ -532,7 +605,7 @@ fun FreeLayoutComponentSlot(
                                         releaseOffset.snapTo(Offset.Zero)
                                     } else {
                                         releaseOffset.snapTo(releasedFrom)
-                                        releaseOffset.animateTo(Offset.Zero, tween(durationMillis = latestAnimMs))
+                                        releaseOffset.animateTo(Offset.Zero, MotionTokens.cardOffsetSpring(latestAnimMs))
                                     }
                                 }
                                 currentOnCommitLayout(finalX, finalY, currentItem.w, currentItem.h, false, false)
@@ -549,7 +622,7 @@ fun FreeLayoutComponentSlot(
                                         releaseOffset.snapTo(Offset.Zero)
                                     } else {
                                         releaseOffset.snapTo(releasedFrom)
-                                        releaseOffset.animateTo(Offset.Zero, tween(durationMillis = latestAnimMs))
+                                        releaseOffset.animateTo(Offset.Zero, MotionTokens.cardOffsetSpring(latestAnimMs))
                                     }
                                 }
                                 currentViewport?.end()
@@ -579,218 +652,76 @@ fun FreeLayoutComponentSlot(
             )
 
             if (allowResize) {
-            // 顶部居中调节手柄
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .offset(y = (-2).dp)
-                    .size(48.dp)
-                    .semantics { contentDescription = "拖动调整卡片上下边缘" }
-                    .ownPanelScrollGestures(true, lockFromDown = true)
-                    .drawSlimResizePill(selectionColor, horizontal = true)
-                    .pointerInput(item.id) {
-                        detectDragGestures(
-                            onDragStart = {
-                                isResizing = true
-                                currentOnInteracting(true)
-                            },
-                            onDragEnd = {
-                                val bounds = computeResizedBounds()
-                                currentOnCommitLayout(bounds[0], bounds[1], bounds[2], bounds[3],
-                                    bounds[2] != currentItem.w, bounds[3] != currentItem.h)
-                                isResizing = false
-                                resizeDx = 0f
-                                resizeDy = 0f
-                                resizeDw = 0f
-                                resizeDh = 0f
-                                currentOnInteracting(false)
-                            },
-                            onDragCancel = {
-                                isResizing = false
-                                resizeDx = 0f
-                                resizeDy = 0f
-                                resizeDw = 0f
-                                resizeDh = 0f
-                                currentOnInteracting(false)
-                            },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                resizeDy += dragAmount.y
-                            }
-                        )
-                    }
-            )
-
-            // 底部居中调节手柄
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .offset(y = 2.dp)
-                    .size(48.dp)
-                    .semantics { contentDescription = "拖动调整卡片上下边缘" }
-                    .ownPanelScrollGestures(true, lockFromDown = true)
-                    .drawSlimResizePill(selectionColor, horizontal = true)
-                    .pointerInput(item.id) {
-                        detectDragGestures(
-                            onDragStart = {
-                                isResizing = true
-                                currentOnInteracting(true)
-                            },
-                            onDragEnd = {
-                                val bounds = computeResizedBounds()
-                                currentOnCommitLayout(bounds[0], bounds[1], bounds[2], bounds[3],
-                                    bounds[2] != currentItem.w, bounds[3] != currentItem.h)
-                                isResizing = false
-                                resizeDx = 0f
-                                resizeDy = 0f
-                                resizeDw = 0f
-                                resizeDh = 0f
-                                currentOnInteracting(false)
-                            },
-                            onDragCancel = {
-                                isResizing = false
-                                resizeDx = 0f
-                                resizeDy = 0f
-                                resizeDw = 0f
-                                resizeDh = 0f
-                                currentOnInteracting(false)
-                            },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                resizeDh += dragAmount.y
-                            }
-                        )
-                    }
-            )
-
-            // 左侧居中调节手柄
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .offset(x = (-2).dp)
-                    .size(48.dp)
-                    .semantics { contentDescription = "拖动调整卡片左右边缘" }
-                    .ownPanelScrollGestures(true, lockFromDown = true)
-                    .drawSlimResizePill(selectionColor, horizontal = false)
-                    .pointerInput(item.id) {
-                        detectDragGestures(
-                            onDragStart = {
-                                isResizing = true
-                                currentOnInteracting(true)
-                            },
-                            onDragEnd = {
-                                val bounds = computeResizedBounds()
-                                currentOnCommitLayout(bounds[0], bounds[1], bounds[2], bounds[3],
-                                    bounds[2] != currentItem.w, bounds[3] != currentItem.h)
-                                isResizing = false
-                                resizeDx = 0f
-                                resizeDy = 0f
-                                resizeDw = 0f
-                                resizeDh = 0f
-                                currentOnInteracting(false)
-                            },
-                            onDragCancel = {
-                                isResizing = false
-                                resizeDx = 0f
-                                resizeDy = 0f
-                                resizeDw = 0f
-                                resizeDh = 0f
-                                currentOnInteracting(false)
-                            },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                resizeDx += dragAmount.x
-                            }
-                        )
-                    }
-            )
-
-            // 右侧居中调节手柄
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .offset(x = 2.dp)
-                    .size(48.dp)
-                    .semantics { contentDescription = "拖动调整卡片左右边缘" }
-                    .ownPanelScrollGestures(true, lockFromDown = true)
-                    .drawSlimResizePill(selectionColor, horizontal = false)
-                    .pointerInput(item.id) {
-                        detectDragGestures(
-                            onDragStart = {
-                                isResizing = true
-                                currentOnInteracting(true)
-                            },
-                            onDragEnd = {
-                                val bounds = computeResizedBounds()
-                                currentOnCommitLayout(bounds[0], bounds[1], bounds[2], bounds[3],
-                                    bounds[2] != currentItem.w, bounds[3] != currentItem.h)
-                                isResizing = false
-                                resizeDx = 0f
-                                resizeDy = 0f
-                                resizeDw = 0f
-                                resizeDh = 0f
-                                currentOnInteracting(false)
-                            },
-                            onDragCancel = {
-                                isResizing = false
-                                resizeDx = 0f
-                                resizeDy = 0f
-                                resizeDw = 0f
-                                resizeDh = 0f
-                                currentOnInteracting(false)
-                            },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                resizeDw += dragAmount.x
-                            }
-                        )
-                    }
-            )
-
-            // Compact visual grip with an independent transparent touch target.
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .size(48.dp)
-                    .semantics { contentDescription = "拖动调整卡片宽高" }
-                    .ownPanelScrollGestures(true, lockFromDown = true)
-                    .pointerInput(item.id) {
-                        detectDragGestures(
-                            onDragStart = {
-                                isResizing = true
-                                currentOnInteracting(true)
-                            },
-                            onDragEnd = {
-                                val bounds = computeResizedBounds()
-                                currentOnCommitLayout(bounds[0], bounds[1], bounds[2], bounds[3],
-                                    bounds[2] != currentItem.w, bounds[3] != currentItem.h)
-                                isResizing = false
-                                resizeDx = 0f
-                                resizeDy = 0f
-                                resizeDw = 0f
-                                resizeDh = 0f
-                                currentOnInteracting(false)
-                            },
-                            onDragCancel = {
-                                isResizing = false
-                                resizeDx = 0f
-                                resizeDy = 0f
-                                resizeDw = 0f
-                                resizeDh = 0f
-                                currentOnInteracting(false)
-                            },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                resizeDw += dragAmount.x
-                                resizeDh += dragAmount.y
-                            }
-                        )
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                CardResizeGripMark(selectionColor)
-            }
-
+                val startResize = {
+                    isResizing = true
+                    currentOnInteracting(true)
+                }
+                val finishResize = {
+                    val b = computeResizedBounds()
+                    currentOnCommitLayout(b.x, b.y, b.w, b.h, b.w != currentItem.w, b.h != currentItem.h)
+                    isResizing = false
+                    resizeDx = 0f; resizeDy = 0f; resizeDw = 0f; resizeDh = 0f
+                    currentOnInteracting(false)
+                }
+                val cancelResize = {
+                    isResizing = false
+                    resizeDx = 0f; resizeDy = 0f; resizeDw = 0f; resizeDh = 0f
+                    currentOnInteracting(false)
+                }
+                FreeCardResizeHandle(
+                    alignment = Alignment.TopCenter,
+                    offsetY = (-2).dp,
+                    description = "拖动调整卡片上下边缘",
+                    selectionColor = selectionColor,
+                    pillHorizontal = true,
+                    itemId = item.id,
+                    onStart = startResize,
+                    onDrag = { resizeDy += it.y },
+                    onEnd = finishResize,
+                    onCancel = cancelResize
+                )
+                FreeCardResizeHandle(
+                    alignment = Alignment.BottomCenter,
+                    offsetY = 2.dp,
+                    description = "拖动调整卡片上下边缘",
+                    selectionColor = selectionColor,
+                    pillHorizontal = true,
+                    itemId = item.id,
+                    onStart = startResize,
+                    onDrag = { resizeDh += it.y },
+                    onEnd = finishResize,
+                    onCancel = cancelResize
+                )
+                FreeCardResizeHandle(
+                    alignment = Alignment.CenterStart,
+                    offsetX = (-2).dp,
+                    description = "拖动调整卡片左右边缘",
+                    selectionColor = selectionColor,
+                    pillHorizontal = false,
+                    itemId = item.id,
+                    onStart = startResize,
+                    onDrag = { resizeDx += it.x },
+                    onEnd = finishResize,
+                    onCancel = cancelResize
+                )
+                FreeCardResizeHandle(
+                    alignment = Alignment.CenterEnd,
+                    offsetX = 2.dp,
+                    description = "拖动调整卡片左右边缘",
+                    selectionColor = selectionColor,
+                    pillHorizontal = false,
+                    itemId = item.id,
+                    onStart = startResize,
+                    onDrag = { resizeDw += it.x },
+                    onEnd = finishResize,
+                    onCancel = cancelResize
+                )
+                FreeCardResizeHandle(Alignment.BottomEnd, description = "拖动调整卡片宽高",
+                    selectionColor = selectionColor, pillHorizontal = null, itemId = item.id,
+                    onStart = startResize, onDrag = { resizeDw += it.x; resizeDh += it.y },
+                    onEnd = finishResize, onCancel = cancelResize) {
+                    CardResizeGripMark(selectionColor)
+                }
             }
             // Coordinates are useful during a gesture; at rest they must not cover the title.
             if (isDragging || isResizing) {
@@ -816,28 +747,6 @@ fun FreeLayoutComponentSlot(
         }
     }
 }
-
-private fun Modifier.drawSlimResizePill(color: Color, horizontal: Boolean): Modifier =
-    drawBehind {
-        val pillW = (if (horizontal) 20.dp else 4.dp).toPx()
-        val pillH = (if (horizontal) 4.dp else 20.dp).toPx()
-        val left = (size.width - pillW) * 0.5f
-        val top = (size.height - pillH) * 0.5f
-        val radius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx(), 2.dp.toPx())
-        drawRoundRect(
-            color = color,
-            topLeft = Offset(left, top),
-            size = androidx.compose.ui.geometry.Size(pillW, pillH),
-            cornerRadius = radius
-        )
-        drawRoundRect(
-            color = Color.White.copy(alpha = 0.9f),
-            topLeft = Offset(left, top),
-            size = androidx.compose.ui.geometry.Size(pillW, pillH),
-            cornerRadius = radius,
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 0.8.dp.toPx())
-        )
-    }
 
 // -----------------------------------------------------------------------------------------
 // 线性布局页面 (LinearLayoutPage)

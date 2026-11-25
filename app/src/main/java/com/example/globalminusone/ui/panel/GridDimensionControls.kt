@@ -41,7 +41,7 @@ internal fun GridDimensionControls(
     var quickExpanded by remember { mutableStateOf(true) }
     val expandedControls = remember { BringIntoViewRequester() }
     var expandedSize by remember { mutableStateOf(IntSize.Zero) }
-    var quickSelection by remember { mutableStateOf(0) }
+    var quickSelection by remember { mutableIntStateOf(0) }
     LaunchedEffect(quickExpanded, quickSelection, expandedSize) {
         if (quickExpanded && expandedSize.height > 0) {
             // Wait for the expanded content to be measured. Request the presets and stepper,

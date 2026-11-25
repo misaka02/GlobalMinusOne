@@ -7,7 +7,7 @@ import android.graphics.BitmapFactory
 import android.content.SharedPreferences
 import android.net.Uri
 import com.example.globalminusone.data.MinusOneRepository
-import com.example.globalminusone.service.WidgetHostManager
+import com.example.globalminusone.data.WidgetHostContract
 import kotlinx.serialization.encodeToString
 import java.io.File
 import java.io.InputStream
@@ -102,7 +102,7 @@ class NativeBackupStore(context: Context, private val repository: MinusOneReposi
             }
             val sameInstallation = backup.payload.installationId.isNotBlank() && backup.payload.installationId == installationId()
             val ownWidgetIds = if (sameInstallation) runCatching {
-                AppWidgetHost(context, WidgetHostManager.HOST_ID).appWidgetIds.toSet()
+                AppWidgetHost(context, WidgetHostContract.HOST_ID).appWidgetIds.toSet()
             }.getOrDefault(emptySet()) else emptySet()
             val manager = AppWidgetManager.getInstance(context)
             val state = NativeBackupCodec.verifiedWidgetBindings(NativeBackupCodec.mapImages(backup.payload.state) { ref ->

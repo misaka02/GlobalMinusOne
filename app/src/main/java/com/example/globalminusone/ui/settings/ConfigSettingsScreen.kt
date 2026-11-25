@@ -441,7 +441,7 @@ internal fun NewConfigProfileDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            com.example.globalminusone.service.Android12WindowKeyGuard()
+            com.example.globalminusone.ui.Android12WindowKeyGuard()
             Text("新建配置方案", fontWeight = FontWeight.Bold) },
         text = {
             Column {
@@ -493,7 +493,7 @@ internal fun ProfileDetailActionDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            com.example.globalminusone.service.Android12WindowKeyGuard()
+            com.example.globalminusone.ui.Android12WindowKeyGuard()
             Text(text = profile.name, fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

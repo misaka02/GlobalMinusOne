@@ -41,6 +41,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.globalminusone.data.GlobalMinusOneState
 import com.example.globalminusone.data.PageLayoutType
+import com.example.globalminusone.ui.motion.overlayScrim
+import com.example.globalminusone.ui.motion.overlaySheetMotion
 
 @Composable
 fun BottomNineKeyModal(
@@ -77,7 +79,7 @@ fun BottomNineKeyModal(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.48f))
+            .overlayScrim(Color.Black, 0.48f)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -87,6 +89,7 @@ fun BottomNineKeyModal(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
+                .overlaySheetMotion()
                 .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },

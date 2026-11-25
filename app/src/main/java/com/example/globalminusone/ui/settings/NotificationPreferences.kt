@@ -57,7 +57,7 @@ private fun NotificationApplicationPicker(initial: Set<String>, onDismiss: () ->
     }
     val visible = remember(apps, query) { apps.filter { it.label.contains(query, true) || it.packageName.contains(query, true) } }
     AlertDialog(onDismissRequest = onDismiss, title = {
-        com.example.globalminusone.service.Android12WindowKeyGuard()
+        com.example.globalminusone.ui.Android12WindowKeyGuard()
          Text("选择通知应用") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("已选 ${selected.size} 个；保存后生效。未列出的既有选择会保留，可在高级输入中移除。")

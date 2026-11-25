@@ -1,5 +1,8 @@
 package com.example.globalminusone.ui.panel
 
+import androidx.compose.animation.core.AnimationSpec
+import com.example.globalminusone.ui.motion.MotionTokens
+
 /** Virtual slots are lazy Compose pages; only real indices ever enter persisted state. */
 internal class LoopPagerPolicy(val pageIds: List<String>) {
     val realPageCount = pageIds.size.coerceAtLeast(1)
@@ -80,3 +83,7 @@ internal class LoopPagerReconciler(private val policy: LoopPagerPolicy, initialR
         return null
     }
 }
+
+/** Velocity-responsive critically-damped pager snap spec scaled to user animationDurationMs. */
+internal fun resolvePagerSnapAnimationSpec(animMs: Int): AnimationSpec<Float> =
+    MotionTokens.pagerSnapSpring(animMs)

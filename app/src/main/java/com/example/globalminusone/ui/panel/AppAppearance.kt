@@ -20,7 +20,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
-internal data class AppMenuEnvironment(val repository: MinusOneRepository, val pageId: String, val item: ComponentItem)
+internal data class AppMenuEnvironment(val actions: AppCardMenuActions, val destinationPicker: CardDestinationPicker, val pageId: String, val item: ComponentItem)
 internal val LocalAppMenuEnvironment = staticCompositionLocalOf<AppMenuEnvironment?> { null }
 
 /** Small user-selected icons only. Decode off the UI thread, sampled, with a bounded process cache. */
@@ -49,6 +49,14 @@ internal object UserIconCache {
     fun isKnownMissing(uri: String, revision: Long): Boolean {
         if (uri.isBlank()) return false
         return missingUris.get(cacheKey(uri, revision)) == true
+    }
+
+    fun trimMemory(clearAll: Boolean) {
+        imageBitmaps.evictAll()
+        if (clearAll) {
+            bitmaps.evictAll()
+            missingUris.evictAll()
+        }
     }
 
     suspend fun load(context: Context, uri: String, revision: Long, notify: Boolean = true): Bitmap? {
@@ -132,7 +140,7 @@ internal fun rememberUserIcon(context: Context, uri: String): Bitmap? {
     var loadedIcon by remember(trimmedUri, revision) { mutableStateOf(cachedIcon) }
     LaunchedEffect(context, trimmedUri, revision) {
         if (cachedIcon == null && loadedIcon == null && !UserIconCache.isKnownMissing(trimmedUri, revision)) {
-            loadedIcon = UserIconCache.load(context.applicationContext ?: context, trimmedUri, revision)
+            loadedIcon = UserIconCache.load(context.applicationContext ?: context, trimmedUri, revision, notify = false)
         }
     }
     return cachedIcon ?: loadedIcon
@@ -153,7 +161,7 @@ internal fun rememberUserIconBitmap(context: Context, uri: String): ImageBitmap?
     }
     LaunchedEffect(context, trimmedUri, revision) {
         if (cachedBitmap == null && loadedBitmap == null && !UserIconCache.isKnownMissing(trimmedUri, revision)) {
-            val loaded = UserIconCache.load(context.applicationContext ?: context, trimmedUri, revision)
+            val loaded = UserIconCache.load(context.applicationContext ?: context, trimmedUri, revision, notify = false)
             loadedBitmap = UserIconCache.peekImageBitmap(trimmedUri, revision)
                 ?: loaded?.let { runCatching { it.asImageBitmap() }.getOrNull() }
         }

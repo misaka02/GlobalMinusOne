@@ -30,7 +30,7 @@ internal fun LegacyConfigCodeImportDialog(repository: MinusOneRepository, onDism
     var complete by remember { mutableStateOf(false) }
     AlertDialog(onDismissRequest = { if (!busy) onDismiss() },
         title = {
-            com.example.globalminusone.service.Android12WindowKeyGuard()
+            com.example.globalminusone.ui.Android12WindowKeyGuard()
             Text(if (complete) "配置码已恢复" else if (pending == null) "导入配置码" else "确认替换当前配置")
         },
         text = {

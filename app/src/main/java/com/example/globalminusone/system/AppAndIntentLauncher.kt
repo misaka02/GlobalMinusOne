@@ -203,6 +203,20 @@ object AppAndIntentLauncher {
         }
     }
 
+    fun trimMemoryCaches(severe: Boolean) {
+        iconBitmapCache.evictAll()
+        missingPackageCache.evictAll()
+        if (severe) {
+            iconCache.evictAll()
+            pinnedPanelApps.clear()
+            pinnedPanelBitmaps.clear()
+            synchronized(appListLock) {
+                cachedApps = null
+            }
+        }
+        notifyCacheUpdated()
+    }
+
     private fun sanitizePackageKey(pkg: String): String {
         val safe = pkg.replace(Regex("[^A-Za-z0-9._-]"), "_").take(80)
         val hash = (pkg.hashCode().toLong() and 0xffffffffL).toString(16)
@@ -509,6 +523,52 @@ object AppAndIntentLauncher {
     /**
      * 适配 Android 12~16 后台启动限制 (BAL - Background Activity Launch)
      */
+    /** Launches [com.example.globalminusone.MainActivity] with PendingIntent + BAL options first, falling back to direct startActivity. */
+    fun launchMainSettings(context: Context, openScreen: String? = null): Boolean {
+        val intent = Intent(context, com.example.globalminusone.MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            putExtra("force_settings", true)
+            if (!openScreen.isNullOrBlank()) {
+                putExtra("open_screen", openScreen)
+            }
+        }
+        val options = buildLaunchOptionsBundle()
+        val requestCode = when (openScreen) {
+            "SCREEN_ASSISTANT" -> 0x474D02
+            null, "" -> 0x474D00
+            else -> 0x474D01 or (openScreen.hashCode() and 0xFF)
+        }
+        val launched = runCatching {
+            val pending = PendingIntent.getActivity(
+                context,
+                requestCode,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            pending.send(context, 0, null, null, null, null, options)
+            true
+        }.getOrElse { piError ->
+            Log.w("AppAndIntentLauncher", "PendingIntent launchMainSettings failed; falling back to startActivity", piError)
+            runCatching {
+                context.startActivity(intent, options)
+                true
+            }.getOrElse { actError ->
+                Log.w("AppAndIntentLauncher", "Direct startActivity launchMainSettings failed", actError)
+                false
+            }
+        }
+        if (!launched) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                Toast.makeText(
+                    context,
+                    "无法从后台拉起设置，请从桌面长按应用图标选择“应用设置”或“OCR 与识屏”",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+        return launched
+    }
+
     private fun buildLaunchOptionsBundle(): Bundle? {
         return if (Build.VERSION.SDK_INT >= 34) {
             @Suppress("DEPRECATION")
@@ -580,9 +640,10 @@ object AppAndIntentLauncher {
                     Toast.makeText(context, "区域截屏需要悬浮窗权限", Toast.LENGTH_SHORT).show()
                     return false
                 }
-                if (com.example.globalminusone.service.GlobalAccessibilityService.instance == null) {
+                val hasPrivilege = context.screenToolRequests().supportsPrivilegedScreenCapture(context)
+                if (context.currentSystemAccessibilityActions() == null && !hasPrivilege) {
                     Toast.makeText(context, "请先开启辅助服务以使用区域截屏", Toast.LENGTH_SHORT).show()
-                    com.example.globalminusone.service.OverlayService.start(context, com.example.globalminusone.service.OverlayService.ACTION_CLOSE_PANEL)
+                    context.panelVisibilityRequests().close(context)
                     runCatching {
                         context.startActivity(
                             Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
@@ -591,21 +652,33 @@ object AppAndIntentLauncher {
                     }
                     return false
                 }
-                com.example.globalminusone.service.OverlayService.start(
-                    context,
-                    com.example.globalminusone.service.OverlayService.ACTION_REGION_SCREENSHOT
-                )
+                return context.screenToolRequests().regionScreenshot(context)
+            }
+            "action:screen_assistant" -> {
+                if (!android.provider.Settings.canDrawOverlays(context)) {
+                    Toast.makeText(context, "全局识屏需要悬浮窗权限", Toast.LENGTH_SHORT).show()
+                    return false
+                }
+                val hasPrivilege = context.screenToolRequests().supportsPrivilegedScreenCapture(context)
+                if (context.currentSystemAccessibilityActions() == null && !hasPrivilege) {
+                    Toast.makeText(context, "请先开启辅助服务以使用全局识屏", Toast.LENGTH_SHORT).show()
+                    context.panelVisibilityRequests().close(context)
+                    runCatching {
+                        context.startActivity(
+                            Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                    return false
+                }
+                return context.screenToolRequests().screenAssistant(context)
+            }
+            "action:breeno_touch" -> {
+                context.screenToolRequests().breenoTouch(context)
                 return true
             }
             "action:com.example.globalminusone.MAIN" -> {
-                return runCatching {
-                    val intent = Intent(context, com.example.globalminusone.MainActivity::class.java).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                        putExtra("force_settings", true)
-                    }
-                    context.startActivity(intent, buildLaunchOptionsBundle())
-                    true
-                }.getOrDefault(false)
+                return launchMainSettings(context)
             }
             "action:eye_protection" -> {
                 val repo = com.example.globalminusone.data.MinusOneRepository.getInstance(context)
@@ -635,6 +708,25 @@ object AppAndIntentLauncher {
             }
             return launchApp(context, item.packageName)
         }
+        val appShortcutRef = ShortcutDiscoveryPolicy.parseAppShortcutUri(uri)
+        if (appShortcutRef != null) {
+            val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? android.content.pm.LauncherApps
+            if (launcherApps != null) {
+                val ok = runCatching {
+                    launcherApps.startShortcut(
+                        appShortcutRef.first,
+                        appShortcutRef.second,
+                        null,
+                        buildLaunchOptionsBundle(),
+                        android.os.Process.myUserHandle()
+                    )
+                    true
+                }.getOrDefault(false)
+                if (ok) return true
+            }
+            Toast.makeText(context, "无法直接启动该系统快捷方式（需设为默认桌面或授权快捷访问）", Toast.LENGTH_SHORT).show()
+            return false
+        }
         val options = buildLaunchOptionsBundle()
         try {
             val intent = when {
@@ -652,7 +744,11 @@ object AppAndIntentLauncher {
                         selector = null
                         clipData = null
                         flags = 0
-                        addCategory(Intent.CATEGORY_BROWSABLE)
+                        // Only enforce BROWSABLE on completely unscoped implicit intent URIs;
+                        // explicit components or package-scoped launcher shortcuts rarely declare BROWSABLE.
+                        if (component == null && `package` == null && categories.isNullOrEmpty()) {
+                            addCategory(Intent.CATEGORY_BROWSABLE)
+                        }
                         component?.let { target ->
                             @Suppress("DEPRECATION")
                             val info = context.packageManager.getActivityInfo(target, 0)

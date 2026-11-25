@@ -1,10 +1,14 @@
 package com.example.globalminusone
 
+import androidx.compose.animation.core.SnapSpec
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.SpringSpec
 import com.example.globalminusone.ui.panel.LoopPagerDecision
 import com.example.globalminusone.ui.panel.LoopPagerNavigation
 import com.example.globalminusone.ui.panel.LoopPagerPolicy
 import com.example.globalminusone.ui.panel.LoopPagerReconciler
 import com.example.globalminusone.ui.panel.LoopPagerSnapshot
+import com.example.globalminusone.ui.panel.resolvePagerSnapAnimationSpec
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
@@ -112,5 +116,18 @@ class LoopPagerPolicyTest {
         val sync = LoopPagerReconciler(policy, 0)
         assertEquals(LoopPagerDecision.Navigate(first + 1), sync.reconcile(
             LoopPagerSnapshot(1, first, first, false, LoopPagerNavigation(1, 2, -1))))
+    }
+
+    @Test fun pagerSnapAnimationSpecUsesSnapForZeroAndVelocitySpringOtherwise() {
+        assertTrue(resolvePagerSnapAnimationSpec(0) is SnapSpec<*>)
+        val fast = resolvePagerSnapAnimationSpec(120) as SpringSpec<*>
+        val normal = resolvePagerSnapAnimationSpec(240) as SpringSpec<*>
+        val slow = resolvePagerSnapAnimationSpec(600) as SpringSpec<*>
+        for (spec in listOf(fast, normal, slow)) {
+            assertEquals(Spring.DampingRatioNoBouncy, spec.dampingRatio, 0.0001f)
+            assertTrue(spec.stiffness in 140f..3200f)
+        }
+        assertTrue(fast.stiffness > normal.stiffness)
+        assertTrue(normal.stiffness > slow.stiffness)
     }
 }

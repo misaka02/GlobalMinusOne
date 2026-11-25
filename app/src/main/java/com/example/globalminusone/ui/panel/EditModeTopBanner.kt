@@ -202,52 +202,51 @@ fun EditModeTopBanner(
                             )
                         }
                     }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        com.example.globalminusone.service.Android12WindowKeyGuard()
+                    PanelDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        com.example.globalminusone.ui.Android12WindowKeyGuard()
+                        val menuPalette = checkNotNull(LocalPanelMenuPalette.current)
 
                         if (onSelectLayoutType != null) {
-                            Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("第 ${currentPage + 1} 页排版", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = palette.accent)
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    listOf(
-                                        PageLayoutType.LINEAR to "线性",
-                                        PageLayoutType.GRID to "网格",
-                                        PageLayoutType.FREE to "自由"
-                                    ).forEach { (mode, label) ->
-                                        val active = layoutType == mode
-                                        Surface(
-                                            onClick = {
-                                                menuOpen = false
-                                                onSelectLayoutType(mode)
-                                            },
-                                            shape = RoundedCornerShape(8.dp),
-                                            color = if (active) palette.accent else groupChipColor
-                                        ) {
-                                            Text(
-                                                text = label,
-                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                                fontSize = 11.sp,
-                                                fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                                                color = if (active) Color.White else palette.textPrimary
-                                            )
-                                        }
+                            PanelMenuSectionTitle("第 ${currentPage + 1} 页排版")
+                            Row(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf(
+                                    PageLayoutType.LINEAR to "线性",
+                                    PageLayoutType.GRID to "网格",
+                                    PageLayoutType.FREE to "自由"
+                                ).forEach { (mode, label) ->
+                                    val active = layoutType == mode
+                                    Surface(
+                                        onClick = {
+                                            menuOpen = false
+                                            onSelectLayoutType(mode)
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = if (active) menuPalette.selectedChip else menuPalette.chip
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                            fontSize = 11.sp,
+                                            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (active) menuPalette.accent else menuPalette.text
+                                        )
                                     }
                                 }
                             }
                             if (onCompactGrid != null) {
-                                DropdownMenuItem(
+                                PanelMenuItem(
                                     text = { Text("网格紧凑对齐") },
                                     onClick = { menuOpen = false; onCompactGrid() }
                                 )
                             }
                             HorizontalDivider()
                         } else {
-                            DropdownMenuItem(
+                            PanelMenuItem(
                                 text = { Text("切换排版（当前：$layoutShort）") },
                                 onClick = { menuOpen = false; onToggleLayoutType() }
                             )
                             if (onCompactGrid != null) {
-                                DropdownMenuItem(
+                                PanelMenuItem(
                                     text = { Text("网格紧凑对齐") },
                                     onClick = { menuOpen = false; onCompactGrid() }
                                 )
@@ -255,62 +254,44 @@ fun EditModeTopBanner(
                             HorizontalDivider()
                         }
 
-                        Text(
-                            text = "属性与外观",
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = palette.textSecondary
-                        )
-                        DropdownMenuItem(
+                        PanelMenuSectionTitle("属性与外观")
+                        PanelMenuItem(
                             text = { Text("已选卡片属性") },
                             onClick = { menuOpen = false; onCardProperties?.invoke() },
                             enabled = onCardProperties != null
                         )
-                        DropdownMenuItem(
+                        PanelMenuItem(
                             text = { Text("全局主题与外观") },
                             onClick = { menuOpen = false; onGlobalProperties() }
                         )
                         HorizontalDivider()
-                        Text(
-                            text = "窗口与触发区",
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = palette.textSecondary
-                        )
-                        DropdownMenuItem(
+                        PanelMenuSectionTitle("窗口与触发区")
+                        PanelMenuItem(
                             text = { Text(if (panelGeometryActive) "退出面板边框调整" else "拖动调整面板大小") },
                             onClick = { menuOpen = false; onPanelGeometry() }
                         )
-                        DropdownMenuItem(
+                        PanelMenuItem(
                             text = { Text("精确面板数值…") },
                             onClick = { menuOpen = false; onPanelNumbers() }
                         )
-                        DropdownMenuItem(
+                        PanelMenuItem(
                             text = { Text(if (triggerZoneActive) "退出触发区位置调整" else "调整触发区域位置") },
                             onClick = { menuOpen = false; onTriggerZone() }
                         )
                         HorizontalDivider()
-                        Text(
-                            text = "页面切换",
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = palette.textSecondary
-                        )
-                        DropdownMenuItem(
+                        PanelMenuSectionTitle("页面切换")
+                        PanelMenuItem(
                             text = { Text("上一页") },
                             onClick = { menuOpen = false; onPrevPage() },
                             enabled = totalPages > 1
                         )
-                        DropdownMenuItem(
+                        PanelMenuItem(
                             text = { Text("下一页") },
                             onClick = { menuOpen = false; onNextPage() },
                             enabled = totalPages > 1
                         )
                         if (onNewPage != null) {
-                            DropdownMenuItem(
+                            PanelMenuItem(
                                 text = { Text("新建页面…") },
                                 onClick = { menuOpen = false; onNewPage() }
                             )

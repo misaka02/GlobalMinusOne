@@ -1,10 +1,5 @@
 package com.example.globalminusone.ui.settings
 
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.scrollable
-
 import android.app.AppOpsManager
 import android.app.NotificationManager
 import android.content.Context
@@ -19,18 +14,16 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import com.example.globalminusone.ui.motion.SettingsScreenTransition
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -39,36 +32,22 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.example.globalminusone.ui.AppIcons as Icons
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.RadioButtonDefaults
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -76,8 +55,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -85,136 +63,59 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.example.globalminusone.data.ConfigProfile
-import com.example.globalminusone.data.GestureAction
-import com.example.globalminusone.data.IconClickBehavior
 import com.example.globalminusone.data.MinusOneRepository
-import com.example.globalminusone.data.PageTransition
-import com.example.globalminusone.data.ScenarioModeItem
-import com.example.globalminusone.data.ShowSideMode
-import com.example.globalminusone.data.TriggerPosition
-import com.example.globalminusone.data.TriggerWay
 import com.example.globalminusone.service.GlobalAccessibilityService
 import com.example.globalminusone.service.OverlayService
-
-// ======================================================================================
-// 矢量图标定义
-// ======================================================================================
-
-internal fun customIcon(name: String, pathData: String): ImageVector {
-    return ImageVector.Builder(
-        name = name,
-        defaultWidth = 24.dp,
-        defaultHeight = 24.dp,
-        viewportWidth = 24f,
-        viewportHeight = 24f
-    ).addPath(
-        pathData = PathParser().parsePathString(pathData).toNodes(),
-        fill = SolidColor(Color.Black)
-    ).build()
-}
-
-internal val IconAccessibility: ImageVector by lazy {
-    customIcon(
-        "IconAccessibility",
-        "M12 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm9 7h-6v13h-2v-6h-2v6H9V9H3V7h18v2z"
-    )
-}
-
-internal val IconOverlayWindow: ImageVector by lazy {
-    customIcon(
-        "IconOverlayWindow",
-        "M19 4H5c-1.11 0-2 .9-2 2v12c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H5V9h14v9zm0-11H5V6h14v1z"
-    )
-}
-
-internal val IconFloppy: ImageVector by lazy {
-    customIcon(
-        "IconFloppy",
-        "M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"
-    )
-}
-
-internal val IconDoNotDisturb: ImageVector by lazy {
-    customIcon(
-        "IconDoNotDisturb",
-        "M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"
-    )
-}
-
-internal val IconBarChart: ImageVector by lazy {
-    customIcon(
-        "IconBarChart",
-        "M4 9h4v11H4zm6-5h4v16h-4zm6 8h4v8h-4z"
-    )
-}
-
-internal val IconPhoneAndroid: ImageVector by lazy {
-    customIcon(
-        "IconPhoneAndroid",
-        "M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"
-    )
-}
-
-internal val IconProhibited: ImageVector by lazy {
-    customIcon(
-        "IconProhibited",
-        "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8 0-1.85.63-3.55 1.69-4.9L16.9 18.31C15.55 19.37 13.85 20 12 20zm6.31-3.1L7.1 5.69C8.45 4.63 10.15 4 12 4c4.42 0 8 3.58 8 8 0 1.85-.63 3.55-1.69 4.9z"
-    )
-}
-
-internal val IconAndroid: ImageVector by lazy {
-    customIcon(
-        "IconAndroid",
-        "M6 18c0 .55.45 1 1 1h1v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h4v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h1c.55 0 1-.45 1-1V8H6v10zM3.5 8C2.67 8 2 8.67 2 9.5v7c0 .83.67 1.5 1.5 1.5S5 17.33 5 16.5v-7C5 8.67 4.33 8 3.5 8zm17 0c-.83 0-1.5.67-1.5 1.5v7c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5v-7c0-.83-.67-1.5-1.5-1.5zm-4.97-4.84l1.3-1.3c.2-.2.2-.51 0-.71-.2-.2-.51-.2-.71 0l-1.48 1.48C13.85 2.23 12.95 2 12 2c-.96 0-1.86.23-2.66.63L7.85 1.15c-.2-.2-.51-.2-.71 0-.2.2-.2.51 0 .71l1.31 1.31C6.97 4.26 6 6.01 6 8h12c0-1.99-.97-3.75-2.47-4.84zM10 5H9V4h1v1zm5 0h-1V4h1v1z"
-    )
-}
-
-internal val IconPuzzle: ImageVector by lazy {
-    customIcon(
-        "IconPuzzle",
-        "M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7 1.49 0 2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5s-1.12-2.5-2.5-2.5z"
-    )
-}
-
-internal val IconHelp: ImageVector by lazy {
-    customIcon(
-        "IconHelp",
-        "M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"
-    )
-}
-
-internal val IconInfo: ImageVector by lazy {
-    customIcon(
-        "IconInfo",
-        "M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v2h-2v-2z"
-    )
-}
 
 // ======================================================================================
 // 根导航架构：独立设置主题 + 单页主界面 + 二级子页面
 // ======================================================================================
 
 @Composable
-fun GlobalMinusOneMainApp(repository: MinusOneRepository, onReturnToPanel: () -> Unit = {}) {
+fun GlobalMinusOneMainApp(
+    repository: MinusOneRepository,
+    initialScreen: String? = null,
+    navigationRequest: SettingsNavigationRequest? = null,
+    onReturnToPanel: () -> Unit = {}
+) {
     val context = LocalContext.current
-    var currentScreen by rememberSaveable { mutableStateOf("MAIN") }
+    val startScreen = navigationRequest?.screen ?: initialScreen ?: "MAIN"
+    var currentScreen by rememberSaveable { mutableStateOf(startScreen) }
+    var lastConsumedNonce by rememberSaveable { mutableLongStateOf(navigationRequest?.nonce ?: 0L) }
+    var forceExpandOcrToken by rememberSaveable { mutableLongStateOf(if (startScreen == "SCREEN_ASSISTANT") 1L else 0L) }
+    var pendingTargetGroup by rememberSaveable { mutableStateOf("") }
+    var pendingJumpNonce by rememberSaveable { mutableLongStateOf(0L) }
+    LaunchedEffect(navigationRequest) {
+        if (SettingsNavigationPolicy.shouldApply(navigationRequest, lastConsumedNonce)) {
+            val request = navigationRequest!!
+            currentScreen = request.screen
+            pendingTargetGroup = if (request.screen == "SCREEN_ASSISTANT") "OCR" else ""
+            pendingJumpNonce += 1L
+            lastConsumedNonce = request.nonce
+            if (request.screen == "SCREEN_ASSISTANT") {
+                forceExpandOcrToken += 1L
+            }
+        }
+    }
+    LaunchedEffect(initialScreen) {
+        if (navigationRequest == null && !initialScreen.isNullOrBlank()) {
+            currentScreen = initialScreen
+            if (initialScreen == "SCREEN_ASSISTANT") {
+                pendingTargetGroup = "OCR"
+                pendingJumpNonce += 1L
+                forceExpandOcrToken += 1L
+            }
+        }
+    }
     val state by repository.state.collectAsState()
     // Activity settings write immediately. Resolve the overlay's draft before any
     // settings screen is composed, including re-entry while that Activity survives.
@@ -244,40 +145,78 @@ fun GlobalMinusOneMainApp(repository: MinusOneRepository, onReturnToPanel: () ->
             .background(MaterialTheme.colorScheme.background)
             .safeDrawingPadding()
     ) {
-        when (currentScreen) {
-            "MAIN" -> MainHomeScreen(
-                repository = repository,
-                onNavigate = { currentScreen = it }
-            )
-            "OPERATION" -> OperationSettingsScreen(
-                repository = repository,
-                onBack = { currentScreen = "MAIN" },
-                onNavigateToSBSettings = { currentScreen = "SB_SETTINGS" }
-            )
-            "SB_SETTINGS" -> SuspensionBallSettingsScreen(
-                repository = repository,
-                onBack = { currentScreen = "OPERATION" }
-            )
-            "THEME" -> ThemeSettingsScreen(
-                repository = repository,
-                onBack = { currentScreen = "MAIN" }
-            )
-            "ADVANCE" -> AdvanceSettingsScreen(
-                repository = repository,
-                onBack = { currentScreen = "MAIN" }
-            )
-            "EXTEND" -> ExtendSettingsScreen(
-                repository = repository,
-                onBack = { currentScreen = "MAIN" }
-            )
-            "CONFIG" -> ConfigSettingsScreen(
-                repository = repository,
-                onBack = { currentScreen = "MAIN" }
-            )
-            "ABOUT" -> AboutSettingsScreen(
-                repository = repository,
-                onBack = { currentScreen = "MAIN" }
-            )
+        SettingsScreenTransition(
+            targetScreen = currentScreen,
+            animMs = state.themeConfig.animationDurationMs.coerceIn(0, 800)
+        ) { screen ->
+            when (screen) {
+                "MAIN" -> MainHomeScreen(
+                    repository = repository,
+                    onNavigate = {
+                        pendingTargetGroup = ""
+                        currentScreen = it
+                    },
+                    onJumpSearchEntry = { entry ->
+                        pendingTargetGroup = entry.targetGroup
+                        pendingJumpNonce += 1L
+                        if (entry.expandOcrSection) {
+                            forceExpandOcrToken += 1L
+                        }
+                        if (entry.targetScreen != "PERMISSIONS" && entry.targetScreen != "TUTORIAL") {
+                            currentScreen = entry.targetScreen
+                        }
+                    }
+                )
+                "OPERATION" -> OperationSettingsScreen(
+                    repository = repository,
+                    initialExpandedGroup = pendingTargetGroup,
+                    jumpNonce = pendingJumpNonce,
+                    onBack = { currentScreen = "MAIN" },
+                    onNavigateToSBSettings = {
+                        pendingTargetGroup = ""
+                        currentScreen = "SB_SETTINGS"
+                    }
+                )
+                "SB_SETTINGS" -> SuspensionBallSettingsScreen(
+                    repository = repository,
+                    initialExpandedGroup = pendingTargetGroup,
+                    jumpNonce = pendingJumpNonce,
+                    onBack = { currentScreen = "OPERATION" }
+                )
+                "THEME" -> ThemeSettingsScreen(
+                    repository = repository,
+                    initialExpandedGroup = pendingTargetGroup,
+                    jumpNonce = pendingJumpNonce,
+                    onBack = { currentScreen = "MAIN" }
+                )
+                "ADVANCE" -> AdvanceSettingsScreen(
+                    repository = repository,
+                    initialExpandedGroup = pendingTargetGroup,
+                    jumpNonce = pendingJumpNonce,
+                    onBack = { currentScreen = "MAIN" }
+                )
+                "EXTEND" -> ExtendSettingsScreen(
+                    repository = repository,
+                    initialExpandedGroup = pendingTargetGroup,
+                    jumpNonce = pendingJumpNonce,
+                    onBack = { currentScreen = "MAIN" }
+                )
+                "SCREEN_ASSISTANT" -> ScreenAssistantSettingsScreen(
+                    repository = repository,
+                    forceExpandOcrToken = forceExpandOcrToken,
+                    initialExpandedGroup = pendingTargetGroup,
+                    jumpNonce = pendingJumpNonce,
+                    onBack = { currentScreen = "MAIN" }
+                )
+                "CONFIG" -> ConfigSettingsScreen(
+                    repository = repository,
+                    onBack = { currentScreen = "MAIN" }
+                )
+                "ABOUT" -> AboutSettingsScreen(
+                    repository = repository,
+                    onBack = { currentScreen = "MAIN" }
+                )
+            }
         }
     }
 }
@@ -289,7 +228,8 @@ fun GlobalMinusOneMainApp(repository: MinusOneRepository, onReturnToPanel: () ->
 @Composable
 private fun MainHomeScreen(
     repository: MinusOneRepository,
-    onNavigate: (String) -> Unit
+    onNavigate: (String) -> Unit,
+    onJumpSearchEntry: (SettingsSearchEntry) -> Unit
 ) {
     val context = LocalContext.current
     val state by repository.state.collectAsState()
@@ -376,6 +316,10 @@ private fun MainHomeScreen(
     }
     var permissionsExpanded by rememberSaveable { mutableStateOf(false) }
     var showTutorialDialog by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    val searchResults = remember(searchQuery) {
+        SettingsSearchIndex.search(searchQuery, com.example.globalminusone.ui.PlatformPinyinProvider.instance)
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -399,6 +343,59 @@ private fun MainHomeScreen(
                 )
             }
         }
+
+        // 设置搜索栏
+        item {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                placeholder = { Text("搜索任意设置（支持拼音/首字母，如：高斯模糊、xfq、护眼、备份…）", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                leadingIcon = { Icon(Icons.Search, contentDescription = "搜索") },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Close, contentDescription = "清除搜索")
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp)
+            )
+        }
+
+        if (searchQuery.isNotBlank()) {
+            item {
+                PreferenceCategoryTitle(title = "搜索结果 (${searchResults.size})")
+            }
+            if (searchResults.isEmpty()) {
+                item {
+                    Text(
+                        text = "未找到匹配的设置项，请尝试其它关键词或拼音缩写（如：主题、鼠标速度、xfq、词库、护眼）",
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                items(searchResults, key = { it.id }) { entry ->
+                    PreferenceItem(
+                        title = "${entry.title}  ·  ${entry.category}",
+                        summary = entry.subtitle,
+                        onClick = {
+                            searchQuery = ""
+                            when (entry.targetScreen) {
+                                "PERMISSIONS" -> permissionsExpanded = true
+                                "TUTORIAL" -> showTutorialDialog = true
+                                else -> onJumpSearchEntry(entry)
+                            }
+                        }
+                    )
+                }
+            }
+        } else {
 
         // 状态大卡片 (layout/y.xml)
         item {
@@ -501,10 +498,17 @@ private fun MainHomeScreen(
         }
 
         item {
-            PreferenceItem(
-                title = "权限与运行检查",
-                summary = "悬浮窗${if (canDrawOverlays) "已授权" else "未授权"} · 辅助服务${if (isAccessibilityEnabled) "已连接" else "未连接"} · ${if (permissionsExpanded) "点击收起" else "按所用功能查看权限"}",
-                onClick = { permissionsExpanded = !permissionsExpanded }
+            PermissionsHeaderCard(
+                canDrawOverlays = canDrawOverlays,
+                isAccessibilityEnabled = isAccessibilityEnabled,
+                isAccessibilityEnabledInSettings = isAccessibilityEnabledInSettings,
+                isStorageGranted = isStorageGranted,
+                canWriteSettings = canWriteSettings,
+                isNotificationPolicyGranted = isNotificationPolicyGranted,
+                isUsageAccessGranted = isUsageAccessGranted,
+                isBatteryOptIgnored = isBatteryOptIgnored,
+                permissionsExpanded = permissionsExpanded,
+                onToggleExpand = { permissionsExpanded = !permissionsExpanded }
             )
         }
 
@@ -515,166 +519,17 @@ private fun MainHomeScreen(
                 enter = expandVertically() + fadeIn(),
                 exit = shrinkVertically() + fadeOut()
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 6.dp)
-                ) {
-                    // 第 1 行：辅助服务 | 悬浮窗 | 手机存储
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        PermissionCircleItem(
-                            title = if (!isAccessibilityEnabled && isAccessibilityEnabledInSettings) "辅助(需重开)»" else "辅助服务»",
-                            icon = IconAccessibility,
-                            granted = isAccessibilityEnabled,
-                            onClick = {
-                                if (!isAccessibilityEnabled && isAccessibilityEnabledInSettings) {
-                                    Toast.makeText(context, "系统已开启但服务被后台断开，请关闭后再重新开启一次", Toast.LENGTH_LONG).show()
-                                }
-                                try {
-                                    context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                                } catch (_: Exception) {
-                                    Toast.makeText(context, "无法打开辅助服务设置", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        )
-                        PermissionCircleItem(
-                            title = "悬浮窗»",
-                            icon = IconOverlayWindow,
-                            granted = canDrawOverlays,
-                            onClick = {
-                                try {
-                                    val intent = Intent(
-                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                        Uri.parse("package:${context.packageName}")
-                                    )
-                                    context.startActivity(intent)
-                                } catch (_: Exception) {
-                                    Toast.makeText(context, "无法打开悬浮窗设置", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        )
-                        PermissionCircleItem(
-                            title = "手机存储»",
-                            icon = IconFloppy,
-                            granted = isStorageGranted,
-                            onClick = {
-                                try {
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                        val intent = Intent(
-                                            Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                                            Uri.parse("package:${context.packageName}")
-                                        )
-                                        context.startActivity(intent)
-                                    } else {
-                                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
-                                        context.startActivity(intent)
-                                    }
-                                } catch (_: Exception) {
-                                    val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
-                                    context.startActivity(fallback)
-                                }
-                            }
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // 第 2 行：修改设置 | 勿扰 | 使用数据
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        PermissionCircleItem(
-                            title = "修改设置»",
-                            icon = Icons.Settings,
-                            granted = canWriteSettings,
-                            onClick = {
-                                try {
-                                    val intent = Intent(
-                                        Settings.ACTION_MANAGE_WRITE_SETTINGS,
-                                        Uri.parse("package:${context.packageName}")
-                                    )
-                                    context.startActivity(intent)
-                                } catch (_: Exception) {
-                                    Toast.makeText(context, "无法打开修改系统设置页", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        )
-                        PermissionCircleItem(
-                            title = "勿扰»",
-                            icon = IconDoNotDisturb,
-                            granted = isNotificationPolicyGranted,
-                            onClick = {
-                                try {
-                                    context.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
-                                } catch (_: Exception) {
-                                    Toast.makeText(context, "无法打开勿扰权限设置", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        )
-                        PermissionCircleItem(
-                            title = "使用数据»",
-                            icon = IconBarChart,
-                            granted = isUsageAccessGranted,
-                            onClick = {
-                                try {
-                                    context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-                                } catch (_: Exception) {
-                                    Toast.makeText(context, "无法打开使用数据访问设置", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // 第 3 行：设备管理 | 后台弹出界面 | 电池优化
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        PermissionCircleItem(
-                            title = "设备管理»",
-                            icon = IconPhoneAndroid,
-                            granted = false,
-                            onClick = {
-                                try {
-                                    context.startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))
-                                } catch (_: Exception) {
-                                    Toast.makeText(context, "无法打开设备管理设置", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        )
-                        PermissionCircleItem(
-                            title = "后台弹出界面»",
-                            icon = IconProhibited,
-                            granted = canDrawOverlays,
-                            onClick = {
-                                try {
-                                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
-                                    context.startActivity(intent)
-                                } catch (_: Exception) {
-                                    Toast.makeText(context, "无法打开应用详情设置", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        )
-                        PermissionCircleItem(
-                            title = "电池优化»",
-                            icon = Icons.BatteryStd,
-                            granted = isBatteryOptIgnored,
-                            onClick = {
-                                try {
-                                    context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                                } catch (_: Exception) {
-                                    Toast.makeText(context, "无法打开电池优化设置", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    TextButton(
-                        onClick = { permissionsExpanded = false },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                    ) {
-                        Text("收起权限检查")
-                    }
-                }
+                PermissionsChecklistContent(
+                    canDrawOverlays = canDrawOverlays,
+                    isAccessibilityEnabled = isAccessibilityEnabled,
+                    isAccessibilityEnabledInSettings = isAccessibilityEnabledInSettings,
+                    isStorageGranted = isStorageGranted,
+                    canWriteSettings = canWriteSettings,
+                    isNotificationPolicyGranted = isNotificationPolicyGranted,
+                    isUsageAccessGranted = isUsageAccessGranted,
+                    isBatteryOptIgnored = isBatteryOptIgnored,
+                    onCollapse = { permissionsExpanded = false }
+                )
             }
         }
 
@@ -719,6 +574,15 @@ private fun MainHomeScreen(
             )
         }
 
+        item {
+            MainMenuItemRow(
+                icon = Icons.Rounded.Translate,
+                title = "全局识屏与翻译",
+                subtitle = "屏幕选字、原位翻译、提取小图、按需模型与小布联动",
+                onClick = { onNavigate("SCREEN_ASSISTANT") }
+            )
+        }
+
         item { PreferenceCategoryTitle(title = "配置与帮助") }
 
         item {
@@ -747,47 +611,12 @@ private fun MainHomeScreen(
                 onClick = { onNavigate("ABOUT") }
             )
         }
+        }
     }
 
     if (showTutorialDialog) {
         TutorialDialog(onDismiss = { showTutorialDialog = false })
     }
-}
-
-/** 权限入口展示系统可读状态；设备管理等无可靠检测项不伪报授权。 */
-@Composable
-private fun PermissionCircleItem(
-    title: String,
-    icon: ImageVector,
-    granted: Boolean,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(24.dp))
-        Column(modifier = Modifier.weight(1f).padding(horizontal = 16.dp)) {
-            Text(title.removeSuffix("»"), style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface)
-            Text(
-                when {
-                    title.startsWith("设备管理") || title.startsWith("后台弹出") -> "打开系统设置查看"
-                    granted -> "已就绪 · 点击管理"
-                    else -> "未就绪 · 按功能需要设置"
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Icon(Icons.KeyboardArrowRight, contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-    Spacer(Modifier.height(4.dp))
 }
 
 /**
@@ -886,332 +715,6 @@ private fun MainMenuItemRow(
 
 
 
-
-// ======================================================================================
-// 8. 关于页面 ("ABOUT")
-// ======================================================================================
-
-private const val PROJECT_DEVELOPER = "misaka02"
-private const val PROJECT_DEVELOPER_URL = "https://github.com/misaka02"
-private const val PROJECT_REPO_URL = "https://github.com/misaka02/GlobalMinusOne"
-private const val PROJECT_ISSUES_URL = "https://github.com/misaka02/GlobalMinusOne/issues"
-
-private fun openProjectWebUrl(context: Context, url: String) {
-    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
-    runCatching { context.startActivity(intent) }.onFailure {
-        Toast.makeText(context, "未找到可用浏览器，请手动访问：$url", Toast.LENGTH_SHORT).show()
-    }
-}
-
-@Composable
-private fun AboutSettingsScreen(
-    repository: MinusOneRepository,
-    onBack: () -> Unit
-) {
-    val context = LocalContext.current
-    val versionLabel = remember(context) {
-        runCatching {
-            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.packageManager.getPackageInfo(
-                    context.packageName,
-                    PackageManager.PackageInfoFlags.of(0L)
-                )
-            } else {
-                @Suppress("DEPRECATION")
-                context.packageManager.getPackageInfo(context.packageName, 0)
-            }
-            "v${info.versionName ?: "2.4.43"}"
-        }.getOrDefault("v2.4.43")
-    }
-    var showResetConfirmDialog by remember { mutableStateOf(false) }
-    var showPrivacyDialog by remember { mutableStateOf(false) }
-    var showLicensesDialog by remember { mutableStateOf(false) }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-    ) {
-        SubPageTopBar(title = "关于", onBack = onBack)
-
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background),
-            contentPadding = PaddingValues(bottom = 36.dp)
-        ) {
-            item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 18.dp, vertical = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            text = "全局负一屏 · GlobalMinusOne $versionLabel",
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = "项目来源：本开源项目灵感与设计延续自已停更的原 Android 应用《全局负一屏》，由 $PROJECT_DEVELOPER 发起并主要由 AI 辅助与主导完成架构重构、代码实现与测试（AI-Developed / AI-Assisted），基于 Kotlin + Jetpack Compose 独立实现并遵循 Apache License 2.0 协议开源；与原闭源版本及原作者无隶属或官方延续关系。",
-                            fontSize = 13.sp,
-                            lineHeight = 19.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = "开发者：$PROJECT_DEVELOPER · 仓库：$PROJECT_REPO_URL",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-            }
-
-            item { PreferenceCategoryTitle(title = "项目与开发者信息") }
-
-            item {
-                PreferenceItem(
-                    title = "开发者",
-                    summary = "$PROJECT_DEVELOPER（$PROJECT_DEVELOPER_URL）",
-                    onClick = { openProjectWebUrl(context, PROJECT_DEVELOPER_URL) }
-                )
-            }
-
-            item {
-                PreferenceItem(
-                    title = "开源项目地址",
-                    summary = PROJECT_REPO_URL,
-                    onClick = { openProjectWebUrl(context, PROJECT_REPO_URL) }
-                )
-            }
-
-            item {
-                PreferenceItem(
-                    title = "问题反馈与交流",
-                    summary = "$PROJECT_ISSUES_URL（点击前往 GitHub Issues 提交反馈）",
-                    onClick = { openProjectWebUrl(context, PROJECT_ISSUES_URL) }
-                )
-            }
-
-            item { PreferenceDivider() }
-
-            item { PreferenceCategoryTitle(title = "合规与维护") }
-
-            item {
-                PreferenceItem(
-                    title = "开源许可与第三方声明",
-                    summary = "Apache-2.0 · 包含 AI 开发说明及 RE2/J、Shizuku API、libsu 归属",
-                    onClick = { showLicensesDialog = true }
-                )
-            }
-
-            item {
-                PreferenceItem(
-                    title = "隐私政策",
-                    summary = "点击查看软件隐私合规与数据安全声明",
-                    onClick = { showPrivacyDialog = true }
-                )
-            }
-
-            item {
-                PreferenceItem(
-                    title = "恢复初始默认布局",
-                    summary = "重置负一屏所有卡片与排版为初始状态",
-                    onClick = {
-                        if (repository.state.value.advancedConfig.layoutLocked) {
-                            Toast.makeText(context, "请先解锁布局，再恢复默认", Toast.LENGTH_SHORT).show()
-                        } else {
-                            showResetConfirmDialog = true
-                        }
-                    }
-                )
-            }
-
-            item {
-                PreferenceItem(
-                    title = "高级版服务",
-                    summary = "账户、购买与激活尚未实现",
-                    enabled = false,
-                    onClick = {}
-                )
-            }
-
-        }
-    }
-
-    if (showResetConfirmDialog) {
-        AlertDialog(
-            onDismissRequest = { showResetConfirmDialog = false },
-            title = {
-                com.example.globalminusone.service.Android12WindowKeyGuard()
-                Text("恢复初始默认布局", fontWeight = FontWeight.Bold) },
-            text = { Text("此操作将清除所有自定义卡片与排版，恢复为默认的线性卡片流（应用、快捷方式、支付、网站与操作栏），是否确认重置？") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        if (repository.state.value.advancedConfig.layoutLocked) {
-                            Toast.makeText(context, "请先解锁布局，再恢复默认", Toast.LENGTH_SHORT).show()
-                        } else {
-                            repository.resetToDefaults()
-                            Toast.makeText(context, "已恢复初始默认布局", Toast.LENGTH_SHORT).show()
-                        }
-                        showResetConfirmDialog = false
-                    }
-                ) {
-                    Text("确认重置", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showResetConfirmDialog = false }) {
-                    Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        )
-    }
-
-    if (showPrivacyDialog) {
-        AlertDialog(
-            onDismissRequest = { showPrivacyDialog = false },
-            title = {
-                com.example.globalminusone.service.Android12WindowKeyGuard()
-                Text("隐私政策与合规声明", fontWeight = FontWeight.Bold) },
-            text = {
-                Text(
-                    text = "《全局负一屏》严格保护您的隐私数据：\n\n" +
-                            "1. 本软件为纯本地离线效率工具，无需任何网络服务器，不收集、不出售任何个人隐私或设备信息；\n" +
-                            "2. 悬浮窗与无障碍服务权限仅用于在屏幕边缘识别滑动或触摸以呼出负一屏面板，不监听任何按键或文本输入；\n" +
-                            "3. 存储权限仅用于读取与备份用户自定义的配置文件；\n" +
-                            "4. 所有应用列表、快捷方式与配置数据仅保存在您手机本地的私有存储空间中。"
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { showPrivacyDialog = false }) {
-                    Text("同意并关闭", color = MaterialTheme.colorScheme.primary)
-                }
-            }
-        )
-    }
-
-    if (showLicensesDialog) {
-        AlertDialog(
-            onDismissRequest = { showLicensesDialog = false },
-            title = {
-                com.example.globalminusone.service.Android12WindowKeyGuard()
-                Text("开源许可与第三方声明", fontWeight = FontWeight.Bold)
-            },
-            text = {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item {
-                        Text(
-                            text = "本应用以 Apache License 2.0 协议开源，灵感与设计延续自已停更的原《全局负一屏》，由 AI 辅助与主导独立重构并由 $PROJECT_DEVELOPER 维护发布（项目地址：$PROJECT_REPO_URL）。感谢并声明所使用第三方开源组件：",
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    item {
-                        Text(
-                            text = "• AndroidX / Jetpack Compose / Kotlin / Kotlinx Serialization (Apache-2.0)\n" +
-                                "• Google RE2/J 1.8 (Go / BSD-3-Clause, Copyright 2009 The Go Authors)\n" +
-                                "• RikkaApps Shizuku API 13.1.5 (MIT License, Copyright 2021 RikkaW)\n" +
-                                "• topjohnwu libsu 6.0.0 (Apache-2.0，包含本地 root-session-retry 补丁；完整许可原文打包于应用 assets/licenses 及 assets/third_party/)",
-                            fontSize = 12.sp,
-                            lineHeight = 18.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showLicensesDialog = false }) {
-                    Text("关闭", color = MaterialTheme.colorScheme.primary)
-                }
-            }
-        )
-    }
-}
-
-// ======================================================================================
-// 通用偏好项：自适应高度、统一说明与可访问控件
-// ======================================================================================
-
-
-
-
-
-
-
-
-
-
-
-
-
-// ======================================================================================
-// 通用弹窗组件（单选、12动作、教程、应用多选、配置导入与详情）
-// ======================================================================================
-
-
-
-
-
-@Composable
-private fun TutorialDialog(onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            com.example.globalminusone.service.Android12WindowKeyGuard()
-            Text("全局负一屏 · 使用教程", fontWeight = FontWeight.Bold) },
-        text = {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                item {
-                    Text(
-                        text = "1. 侧边滑出：\n在任意界面从屏幕预设边缘（默认左侧70%高度处）向内滑动，即可呼出沉浸式负一屏面板。",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-                item {
-                    Text(
-                        text = "2. 底部呼出 9 键菜单：\n在负一屏面板非卡片区域，从屏幕底部向上轻滑超过50px，或点击卡片底部的【+】操作栏卡片，即可呼出底部的 9 键管理浮层工具栏！",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-                item {
-                    Text(
-                        text = "3. 编辑与组件添加：\n在 9 键工具栏中点击【编辑模式】，卡片右上角会出现红色序号，长按卡片可修改尺寸、坐标与外观；点击【添加】可自由选用 22 类系统功能组件。",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-                item {
-                    Text(
-                        text = "4. 自由布局网格：\n支持新建自由布局分页，支持在 32 等分网格坐标系中拖动移动、拉伸 4 个边缘缩放，随心所欲定制您的专属桌面！",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("我知道了", color = MaterialTheme.colorScheme.primary)
-            }
-        }
-    )
-}
 
 data class AppItemInfo(val packageName: String, val label: String)
 

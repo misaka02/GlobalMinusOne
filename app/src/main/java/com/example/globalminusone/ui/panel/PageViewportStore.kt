@@ -2,6 +2,7 @@ package com.example.globalminusone.ui.panel
 
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.staticCompositionLocalOf
 
 /** Screen position belongs to the real page, not one of the pager's equivalent virtual copies. */
@@ -72,4 +73,4 @@ internal fun initialLinearViewport(memory: PageViewportMemory, ids: List<String>
 internal fun initialFreeViewport(memory: PageViewportMemory) = ScrollState(memory.freeScrollPx.coerceAtLeast(0))
 
 internal val LocalPageViewport = staticCompositionLocalOf<PageViewportMemory?> { null }
-internal val LocalPageViewportActive = staticCompositionLocalOf { true }
+internal val LocalPageViewportActive = compositionLocalOf { true }

@@ -5,7 +5,7 @@
     <!-- 核心悬浮窗与系统级能力权限 -->
     <!-- 独立浏览器直接访问用户输入的网页，不借用外部浏览器联网。 -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Opens Android's own uninstall confirmation; no silent deletion privilege. -->
+    <!-- Opens Android's own uninstall confirmation from app cards; no silent deletion privilege. -->
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -41,12 +41,22 @@
         tools:ignore="QueryAllPackagesPermission" />
 
     <queries>
+        <package android:name="com.coloros.colordirectservice" />
+        <package android:name="com.coloros.smartsidebar" />
+        <package android:name="com.coloros.directui" />
+        <package android:name="com.oplus.directui" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
         <intent>
             <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.CREATE_SHORTCUT" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.ASSIST" />
         </intent>
         <package android:name="com.tencent.mm" />
         <package android:name="com.eg.android.AlipayGphone" />
@@ -72,6 +82,10 @@
         android:windowSoftInputMode="adjustResize">
 
         <meta-data android:name="moe.shizuku.client.V3_SUPPORT" android:value="true" />
+        <meta-data android:name="xposedmodule" android:value="true" />
+        <meta-data android:name="xposeddescription" android:value="实验性：仅在系统框架 (android) 通过 AOSP ViewDebug 单层捕获可见图片控件，不注入第三方应用" />
+        <meta-data android:name="xposedminversion" android:value="93" />
+        <meta-data android:name="xposedscope" android:resource="@array/xposed_scope" />
         <!-- Official provider contract; the cross-user permission protects the provider,
              it is not a permission grant to this app. -->
         <provider android:name="rikka.shizuku.ShizukuProvider"
@@ -86,14 +100,10 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
-
-        <!-- Withdrawn after device failure; do not expose the unverified split launcher. -->
-        <activity android:name=".split.SplitLaunchActivity" android:exported="false" android:enabled="false"
-            android:launchMode="singleTop" android:taskAffinity="${applicationId}.split"
-            android:resizeableActivity="true"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
-            android:theme="@style/Theme.GlobalMinusOne" />
 
         <!-- 系统小部件绑定与配置辅助页 -->
         <activity android:name=".PhotoCubePickerActivity" android:exported="false"

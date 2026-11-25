@@ -55,6 +55,21 @@ internal fun commitCardGeometry(
     autoHeight = if (resizeHeight) false else item.autoHeight
 )
 
+/**
+ * Resizing a non-icon card inside a GRID container clears explicit grid spans on the resized axes
+ * so the dragged pixel/grid dimensions take effect immediately rather than being pinned back by gridSpanX/Y.
+ */
+internal fun commitContainerGridChildResize(
+    item: com.example.globalminusone.data.ComponentItem,
+    w: Int, yDeltaOrUnused: Int = 0, h: Int, resizeWidth: Boolean, resizeHeight: Boolean
+): com.example.globalminusone.data.ComponentItem = item.copy(
+    w = if (resizeWidth) w else item.w,
+    h = if (resizeHeight) h else item.h,
+    gridSpanX = if (resizeWidth) 0 else item.gridSpanX,
+    gridSpanY = if (resizeHeight) 0 else item.gridSpanY,
+    autoHeight = if (resizeHeight) false else item.autoHeight
+)
+
 internal fun restoreDefaultCardSize(item: com.example.globalminusone.data.ComponentItem, columns: Int) =
     item.copy(w = item.type.defaultW.coerceIn(1, (columns - item.x).coerceAtLeast(1)),
         h = item.type.defaultH, gridSpanX = 0, gridSpanY = 0, autoHeight = item.type in setOf(

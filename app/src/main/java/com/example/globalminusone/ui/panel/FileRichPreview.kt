@@ -37,9 +37,13 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.globalminusone.system.BrowserPreview
 import com.example.globalminusone.system.FileBrowserIo
+import com.example.globalminusone.system.ImageClipboard
 import com.example.globalminusone.ui.AppIcons as Icons
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 
 /** Fit uses the bitmap's aspect ratio; letterboxing is not draggable image content. */
 internal fun imagePanLimit(viewWidth: Int, viewHeight: Int, imageWidth: Int, imageHeight: Int, scale: Float): Offset {
@@ -56,6 +60,10 @@ internal data class PdfPageControls(val page: Int, val pages: Int, val loading: 
 @Composable
 internal fun ZoomableFileImage(preview: BrowserPreview.Image, title: String, gif: Boolean,
     pdfControls: PdfPageControls? = null) {
+    val context = LocalContext.current
+    val copyScope = rememberCoroutineScope()
+    var imageMenu by remember { mutableStateOf(false) }
+    var copying by remember { mutableStateOf(false) }
     var scale by remember(preview.bitmap) { mutableFloatStateOf(1f) }
     var pan by remember(preview.bitmap) { mutableStateOf(Offset.Zero) }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
@@ -71,6 +79,37 @@ internal fun ZoomableFileImage(preview: BrowserPreview.Image, title: String, gif
                 Text("${(scale * 100).toInt()}% · 双指缩放/拖移 · 双击复位${if (gif) " · GIF首帧" else ""}",
                     Modifier.weight(1f).padding(start = 8.dp), style = MaterialTheme.typography.labelSmall)
                 TextButton(onClick = { reset() }) { Text("复位") }
+                Box {
+                    TextButton(onClick = { imageMenu = true }) { Text("更多") }
+                    DropdownMenu(expanded = imageMenu, onDismissRequest = { imageMenu = false }) {
+                        DropdownMenuItem(text = { Text("复制图片") }, enabled = !copying, onClick = {
+                            imageMenu = false
+                            // Snapshot while the preview still owns its pixels; later close may release them.
+                            val owned = runCatching {
+                                preview.bitmap.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
+                            }.getOrNull()
+                            if (owned == null) {
+                                android.widget.Toast.makeText(context, "无法读取图片", android.widget.Toast.LENGTH_SHORT).show()
+                            } else {
+                                copying = true
+                                copyScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                                    try {
+                                        ensureActive()
+                                        ImageClipboard.copy(context, owned)
+                                        android.widget.Toast.makeText(context, "已复制图片", android.widget.Toast.LENGTH_SHORT).show()
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (_: Exception) {
+                                        android.widget.Toast.makeText(context, "复制图片失败", android.widget.Toast.LENGTH_SHORT).show()
+                                    } finally {
+                                        owned.recycle()
+                                        copying = false
+                                    }
+                                }
+                            }
+                        })
+                    }
+                }
             }
         } else {
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {

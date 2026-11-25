@@ -184,7 +184,7 @@ class RadioController(context: Context) {
             return@withLock RadioControlResult(false, "请先明确授权 Shizuku；未请求 Root")
         if (route == Backend.PUBLIC && kind == RadioKind.BLUETOOTH && Build.VERSION.SDK_INT >= 31 &&
             ContextCompat.checkSelfPermission(app, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-            com.example.globalminusone.service.OverlayService.start(app, com.example.globalminusone.service.OverlayService.ACTION_CLOSE_PANEL)
+            app.panelVisibilityRequests().close(app)
             val requested = runCatching {
                 app.startActivity(Intent(app, com.example.globalminusone.MainActivity::class.java)
                     .setAction(com.example.globalminusone.MainActivity.ACTION_REQUEST_BLUETOOTH_PERMISSION)
@@ -193,7 +193,12 @@ class RadioController(context: Context) {
             return@withLock RadioControlResult(false, if (requested) "请先允许附近设备权限以读取蓝牙状态" else "请在应用设置授予附近设备权限")
         }
         if (route == Backend.PUBLIC && !publicCommand(kind, enabled)) {
-            return@withLock RadioControlResult(false, if (openOfficialControl(kind)) "已打开系统控制，请在系统界面确认开关状态" else "系统未提供可用控制入口")
+            return@withLock RadioControlResult(
+                false,
+                if (openOfficialControl(kind, wantEnable = enabled)) {
+                    if (kind == RadioKind.BLUETOOTH && enabled) "已弹出系统蓝牙开启确认框" else "已打开系统控制，请在系统界面确认开关状态"
+                } else "系统未提供可用控制入口"
+            )
         }
         val action = when (kind) {
             RadioKind.WIFI -> if (enabled) PrivilegeAction.WIFI_ON else PrivilegeAction.WIFI_OFF
@@ -211,8 +216,25 @@ class RadioController(context: Context) {
             if (!verified.succeeded && commandFailure.isNotBlank()) verified.copy(message = commandFailure) else verified
         } ?: RadioControlResult(false, "控制等待超时，请刷新系统状态")
     }
-    fun openOfficialControl(kind: RadioKind): Boolean = runCatching {
-        com.example.globalminusone.service.OverlayService.start(app, com.example.globalminusone.service.OverlayService.ACTION_CLOSE_PANEL)
+
+    fun openOfficialControl(kind: RadioKind): Boolean = openOfficialControl(kind, wantEnable = null)
+
+    @Suppress("MissingPermission")
+    fun openOfficialControl(kind: RadioKind, wantEnable: Boolean?): Boolean = runCatching {
+        app.panelVisibilityRequests().close(app)
+        if (kind == RadioKind.BLUETOOTH && wantEnable == true) {
+            val hasBtConnect = Build.VERSION.SDK_INT < 31 ||
+                ContextCompat.checkSelfPermission(app, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+            if (hasBtConnect) {
+                val requestOk = runCatching {
+                    app.startActivity(
+                        Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                }.isSuccess
+                if (requestOk) return@runCatching true
+            }
+        }
         val action = if (kind == RadioKind.WIFI && Build.VERSION.SDK_INT >= 29) Settings.Panel.ACTION_WIFI
             else if (kind == RadioKind.WIFI) Settings.ACTION_WIFI_SETTINGS else Settings.ACTION_BLUETOOTH_SETTINGS
         app.startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); true

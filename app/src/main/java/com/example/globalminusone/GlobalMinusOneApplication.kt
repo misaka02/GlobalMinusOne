@@ -1,10 +1,57 @@
 package com.example.globalminusone
 
 import android.app.Application
+import android.content.ComponentCallbacks2
+import android.content.Context
+import com.example.globalminusone.service.OverlayService
+import com.example.globalminusone.service.GlobalAccessibilityService
+import com.example.globalminusone.system.AppAndIntentLauncher
+import com.example.globalminusone.system.SystemAccessibilityActions
+import com.example.globalminusone.system.SystemAccessibilityActionsOwner
+import com.example.globalminusone.system.ScreenToolRequests
+import com.example.globalminusone.system.ScreenToolRequestsOwner
+import com.example.globalminusone.system.PanelVisibilityRequests
+import com.example.globalminusone.system.PanelVisibilityRequestsOwner
+import com.example.globalminusone.system.trimCardImageCache
+import com.example.globalminusone.ui.panel.UserIconCache
 import androidx.compose.foundation.ComposeFoundationFlags
 import androidx.compose.foundation.ExperimentalFoundationApi
 
-class GlobalMinusOneApplication : Application() {
+class GlobalMinusOneApplication : Application(), PanelVisibilityRequestsOwner, SystemAccessibilityActionsOwner, ScreenToolRequestsOwner {
+    override val panelVisibilityRequests: PanelVisibilityRequests = object : PanelVisibilityRequests {
+        override fun open(context: Context) {
+            OverlayService.start(context, OverlayService.ACTION_OPEN_PANEL)
+        }
+
+        override fun close(context: Context) {
+            OverlayService.start(context, OverlayService.ACTION_CLOSE_PANEL)
+        }
+    }
+
+    override fun currentSystemAccessibilityActions(): SystemAccessibilityActions? = GlobalAccessibilityService.instance
+
+    override val screenToolRequests: ScreenToolRequests = object : ScreenToolRequests {
+        override fun regionScreenshot(context: Context): Boolean =
+            requestCapture(context, OverlayService.ACTION_REGION_SCREENSHOT)
+
+        override fun screenAssistant(context: Context): Boolean =
+            requestCapture(context, OverlayService.ACTION_SCREEN_ASSISTANT)
+
+        private fun requestCapture(context: Context, action: String): Boolean =
+            if (context is OverlayService) context.requestCapture(action) else OverlayService.start(context, action)
+
+        override fun breenoTouch(context: Context) {
+            OverlayService.start(context, OverlayService.ACTION_BREENO_TOUCH)
+        }
+
+        override fun supportsPrivilegedScreenCapture(context: Context): Boolean {
+            val config = com.example.globalminusone.data.MinusOneRepository.getInstance(context).state.value.advancedConfig
+            return config.rootModeEnabled || config.screenAssistantConfig.usePrivilegedCapture ||
+                com.example.globalminusone.system.UserRootSession.authorizedEpoch() != null ||
+                com.example.globalminusone.screenassistant.ScreenCaptureHub.shizukuAuthorized()
+        }
+    }
+
     @OptIn(ExperimentalFoundationApi::class)
     override fun onCreate() {
         super.onCreate()
@@ -16,5 +63,23 @@ class GlobalMinusOneApplication : Application() {
         // No WebView initialization when no private profile is registered. A previous
         // crash is cleaned at the process entry shared by activities and services.
         runCatching { com.example.globalminusone.browser.PrivateWebProfile.cleanupStaleOnStartup(this) }
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+            trimCachedMemory(severe = level > ComponentCallbacks2.TRIM_MEMORY_BACKGROUND)
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        trimCachedMemory(severe = true)
+    }
+
+    private fun trimCachedMemory(severe: Boolean) {
+        trimCardImageCache(clearAll = severe)
+        UserIconCache.trimMemory(clearAll = severe)
+        AppAndIntentLauncher.trimMemoryCaches(severe = severe)
     }
 }

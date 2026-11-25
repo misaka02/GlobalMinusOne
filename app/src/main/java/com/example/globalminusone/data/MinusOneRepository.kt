@@ -6,12 +6,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
 import java.util.UUID
 
-class MinusOneRepository internal constructor(private val prefs: SharedPreferences) {
+class MinusOneRepository internal constructor(prefs: SharedPreferences) {
 
     private constructor(context: Context) : this(
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -21,20 +18,7 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
         measuredFontScale = context.resources.configuration.fontScale
     }
 
-    private val json = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-        prettyPrint = false
-    }
-
-    private val prettyJson = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-        prettyPrint = true
-    }
-
-    private var pendingCorruptRawBackup: String? = null
-    private var verifiedCorruptBackup: CorruptStateBackup? = null
+    private val configurationStore = ConfigurationStore(prefs)
     private val _corruptStateRecoveredNotice = MutableStateFlow(false)
     val corruptStateRecoveredNotice: StateFlow<Boolean> = _corruptStateRecoveredNotice.asStateFlow()
 
@@ -63,7 +47,6 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
     private var panelEditBaseline: PanelEditSnapshot? = null
     private var lastPersistedState: GlobalMinusOneState? = null
     @Volatile private var persistenceNeedsRetry = false
-    private val configurationWrites = ConfigurationWriteAcceptance(prefs, KEY_STATE_JSON)
     private val _persistenceError = MutableStateFlow<String?>(null)
     val persistenceError: StateFlow<String?> = _persistenceError.asStateFlow()
     internal var lastPersistenceFailure: Throwable? = null
@@ -82,16 +65,7 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
 
     /** Preserve the exact unreadable source before any code path replaces the active preference. */
     @Synchronized
-    fun ensureCorruptStateBackup(): CorruptStateBackup? {
-        val raw = pendingCorruptRawBackup ?: return verifiedCorruptBackup
-        val key = "${KEY_STATE_JSON}_corrupt_${System.currentTimeMillis()}_${UUID.randomUUID()}"
-        check(prefs.edit().putString(key, raw).commit()) { "损坏配置原文备份写入失败，未覆盖原配置" }
-        check(prefs.getString(key, null) == raw) { "损坏配置原文备份回读不一致，未覆盖原配置" }
-        return CorruptStateBackup(key, raw).also {
-            verifiedCorruptBackup = it
-            pendingCorruptRawBackup = null
-        }
-    }
+    fun ensureCorruptStateBackup(): CorruptStateBackup? = configurationStore.ensureCorruptStateBackup()
 
     @Volatile private var measuredPanelWidthDp = 320f
     @Volatile private var measuredPanelWidthPercent = _state.value.themeConfig.panelWidthPercent.coerceAtLeast(1)
@@ -121,45 +95,13 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
     val panelCloseGeneration: StateFlow<Long> = _panelCloseGeneration.asStateFlow()
 
     private fun loadInitialState(): GlobalMinusOneState {
-        val raw = prefs.getString(KEY_STATE_JSON, null)
-        return if (raw == null) {
-            GlobalMinusOneState()
-        } else {
-            try {
-                decodeValidatedState(raw)
-            } catch (_: Exception) {
-                pendingCorruptRawBackup = raw
-                _corruptStateRecoveredNotice.value = true
-                GlobalMinusOneState()
-            }
-        }
+        val loaded = configurationStore.loadInitialState()
+        _corruptStateRecoveredNotice.value = loaded.corruptRecovered
+        return loaded.state
     }
 
-    private fun decodeValidatedState(raw: String): GlobalMinusOneState {
-        checkConfigurationJsonEnvelope(raw)
-        val hasSchemaVersion = runCatching {
-            json.parseToJsonElement(raw).jsonObject.containsKey("schemaVersion")
-        }.getOrDefault(true)
-        val parsed = json.decodeFromString<GlobalMinusOneState>(raw).let {
-            if (hasSchemaVersion) it else it.migrateLegacyRowGapSentinels()
-        }
-        require(parsed.advancedConfig.gridColumns in 8..64) { "网格列数必须在 8 到 64 之间" }
-        require(parsed.pages.isNotEmpty()) { "配置必须至少包含一页" }
-        require(parsed.currentPageIndex in parsed.pages.indices) { "当前页面下标无效" }
-        require(parsed.triggerConfig.minimumSwipeDistanceDp in 16..160) { "最小滑动距离必须在 16 到 160 dp 之间" }
-        val directoryUris = parsed.fileBrowserConfig.roots.map { it.uri }
-        require(directoryUris.all { it.isNotBlank() }) { "文件目录地址不能为空" }
-        require(directoryUris.distinct().size == directoryUris.size) { "文件目录地址不能重复" }
-        validateComponentTrees(parsed.pages)
-        val bounded = parsed.copy(
-            themeConfig = parsed.themeConfig.normalizedPanelGeometry(),
-            triggerConfig = parsed.triggerConfig.copy(
-                sidePullHorizontalOffsetDp = parsed.triggerConfig.sidePullHorizontalOffsetDp.coerceIn(-1, 160)
-            )
-        )
-        // A process restart never resumes an unconfirmed editing gesture/session.
-        return bounded.copy(editMode = false, selectedComponentId = null)
-    }
+    private fun decodeValidatedState(raw: String): GlobalMinusOneState =
+        ConfigurationCodec.decodeValidatedState(raw)
 
     private fun persist(newState: GlobalMinusOneState): Boolean {
         if (!persistenceNeedsRetry && lastPersistedState == newState) {
@@ -167,10 +109,7 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
             lastPersistenceFailure = null
             return true
         }
-        val result = configurationWrites.accept(
-            serialize = { json.encodeToString(newState) },
-            protectOriginal = { ensureCorruptStateBackup() }
-        )
+        val result = configurationStore.accept(newState)
         if (result.isFailure) {
             lastPersistenceFailure = result.exceptionOrNull()
             reportPersistenceFailure()
@@ -294,55 +233,7 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
         var newIndex = -1
         val accepted = updateState { current ->
             if (current.advancedConfig.layoutLocked) return@updateState current
-            val pageNumber = current.pages.size + 1
-            val resolvedName = if (name.isBlank()) {
-                "${layoutType.label} $pageNumber"
-            } else {
-                name
-            }
-            // 新建页默认附带一个底栏操作栏组件
-            val defaultComponents = when (layoutType) {
-                PageLayoutType.FREE -> listOf(
-                    ComponentItem(
-                        id = UUID.randomUUID().toString(),
-                        type = ComponentType.OPERATION_BAR,
-                        title = "操作栏",
-                        showTitle = false,
-                        x = 1,
-                        y = 44,
-                        w = 30,
-                        h = 4
-                    )
-                )
-                PageLayoutType.GRID -> listOf(
-                    ComponentItem(
-                        id = UUID.randomUUID().toString(),
-                        type = ComponentType.OPERATION_BAR,
-                        title = "操作栏",
-                        showTitle = false,
-                        w = 32,
-                        h = 4,
-                        gridSpanX = GRID_SPAN_FULL_ROW,
-                        gridSpanY = 1
-                    )
-                )
-                PageLayoutType.LINEAR -> listOf(
-                    ComponentItem(
-                        id = UUID.randomUUID().toString(),
-                        type = ComponentType.OPERATION_BAR,
-                        title = "操作栏",
-                        showTitle = false,
-                        w = 32,
-                        h = 4
-                    )
-                )
-            }
-            val newPage = PageConfig(
-                id = UUID.randomUUID().toString(),
-                name = resolvedName,
-                layoutType = layoutType,
-                components = defaultComponents
-            )
+            val newPage = PageOperations.createPage(layoutType, name, current.pages.size + 1) { UUID.randomUUID().toString() }
             val updatedPages = current.pages + newPage
             newIndex = updatedPages.size - 1
             current.copy(
@@ -388,22 +279,9 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
         var success = false
         val accepted = updateState { current ->
             if (current.advancedConfig.layoutLocked) return@updateState current
-            if (current.pages.size <= 1 || pageIndex !in current.pages.indices) {
-                return@updateState current
-            }
+            val change = PageOperations.delete(current.pages, current.currentPageIndex, pageIndex) ?: return@updateState current
             success = true
-            val updatedPages = current.pages.filterIndexed { index, _ -> index != pageIndex }
-            val newCurrent = when {
-                current.currentPageIndex >= updatedPages.size -> updatedPages.size - 1
-                current.currentPageIndex == pageIndex -> current.currentPageIndex.coerceAtMost(updatedPages.size - 1)
-                current.currentPageIndex > pageIndex -> current.currentPageIndex - 1
-                else -> current.currentPageIndex
-            }
-            current.copy(
-                pages = updatedPages,
-                currentPageIndex = newCurrent,
-                selectedComponentId = null
-            )
+            current.copy(pages = change.pages, currentPageIndex = change.activeIndex, selectedComponentId = null)
         }
         return accepted && success
     }
@@ -415,15 +293,9 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
         var success = false
         val accepted = updateState { current ->
             if (current.advancedConfig.layoutLocked) return@updateState current
-            if (pageIndex <= 0 || pageIndex >= current.pages.size) {
-                return@updateState current
-            }
+            val change = PageOperations.swapLeft(current.pages, pageIndex) ?: return@updateState current
             success = true
-            val mutable = current.pages.toMutableList()
-            val temp = mutable[pageIndex]
-            mutable[pageIndex] = mutable[pageIndex - 1]
-            mutable[pageIndex - 1] = temp
-            current.copy(pages = mutable, currentPageIndex = pageIndex - 1)
+            current.copy(pages = change.pages, currentPageIndex = change.activeIndex)
         }
         return accepted && success
     }
@@ -435,15 +307,9 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
         var success = false
         val accepted = updateState { current ->
             if (current.advancedConfig.layoutLocked) return@updateState current
-            if (pageIndex < 0 || pageIndex >= current.pages.size - 1) {
-                return@updateState current
-            }
+            val change = PageOperations.swapRight(current.pages, pageIndex) ?: return@updateState current
             success = true
-            val mutable = current.pages.toMutableList()
-            val temp = mutable[pageIndex]
-            mutable[pageIndex] = mutable[pageIndex + 1]
-            mutable[pageIndex + 1] = temp
-            current.copy(pages = mutable, currentPageIndex = pageIndex + 1)
+            current.copy(pages = change.pages, currentPageIndex = change.activeIndex)
         }
         return accepted && success
     }
@@ -452,10 +318,7 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
         var valid = false
         val accepted = updateState { current ->
             if (current.advancedConfig.layoutLocked) return@updateState current
-            if (pageIndex !in current.pages.indices) return@updateState current
-            val updated = current.pages.toMutableList()
-            updated[pageIndex] = transform(updated[pageIndex])
-            if (runCatching { validateComponentTrees(updated) }.isFailure) return@updateState current
+            val updated = PageOperations.update(current.pages, pageIndex, transform) ?: return@updateState current
             valid = true
             current.copy(pages = updated)
         }
@@ -465,23 +328,20 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
     fun updatePageGridStyle(pageIndex: Int, itemSizeDp: Int? = null, itemGapDp: Int? = null,
         columnCount: Int? = null, iconSizeDp: Int? = null, rowGapDp: Int? = null): Boolean {
         return updatePageConfig(pageIndex) { page ->
-            val nextRowGap = rowGapDp?.let {
-                if (it == ROW_GAP_INHERIT) ROW_GAP_INHERIT else it.coerceIn(MIN_GRID_GAP_DP, MAX_GRID_GAP_DP)
-            } ?: page.gridRowGapDp
-            page.copy(
-                gridItemSizeDp = (itemSizeDp ?: page.gridItemSizeDp).coerceIn(44, 160),
-                gridItemGapDp = (itemGapDp ?: page.gridItemGapDp).coerceIn(MIN_GRID_GAP_DP, MAX_GRID_GAP_DP),
-                gridRowGapDp = nextRowGap,
-                gridColumnCount = (columnCount ?: page.gridColumnCount).coerceIn(0, 12),
-                gridIconSizeDp = (iconSizeDp ?: page.gridIconSizeDp).coerceIn(0, 192)
-            )
+            PageOperations.gridStyle(page, itemSizeDp, itemGapDp, columnCount, iconSizeDp, rowGapDp)
         }
     }
 
+    @Synchronized
     fun fitPageGridColumnCount(pageIndex: Int, columns: Int, availableWidthDp: Float) {
-        if (columns == 0) { updatePageGridStyle(pageIndex, columnCount = 0); return }
+        val pageId = _state.value.pages.getOrNull(pageIndex)?.id ?: return
+        tryFitPageGridColumnCount(pageId, columns, availableWidthDp)
+    }
+
+    private fun fitPageGridColumnCountAtIndex(pageIndex: Int, columns: Int, availableWidthDp: Float): Boolean {
+        if (columns == 0) return updatePageGridStyle(pageIndex, columnCount = 0)
         val fitted = fitPageGridColumns(availableWidthDp, columns)
-        updatePageGridStyle(pageIndex, fitted.itemSizeDp, fitted.itemGapDp, fitted.columnCount, fitted.iconSizeDp)
+        return updatePageGridStyle(pageIndex, fitted.itemSizeDp, fitted.itemGapDp, fitted.columnCount, fitted.iconSizeDp)
     }
 
     fun estimatedPageGridWidthDp(): Float = (measuredPanelWidthDp *
@@ -490,48 +350,19 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
     /**
      * 直接设置指定页的布局类型（线性布局 / 网格布局 / 自由布局）
      */
+    @Synchronized
     fun setPageLayoutType(pageIndex: Int, newType: PageLayoutType) {
-        updateState { current ->
+        val pageId = _state.value.pages.getOrNull(pageIndex)?.id ?: return
+        trySetPageLayoutType(pageId, newType)
+    }
+
+    private fun setPageLayoutTypeAtIndex(pageIndex: Int, newType: PageLayoutType): Boolean {
+        return updateState { current ->
             if (current.advancedConfig.layoutLocked) return@updateState current
             if (pageIndex !in current.pages.indices) return@updateState current
             val targetPage = current.pages[pageIndex]
             if (targetPage.layoutType == newType) return@updateState current
-            val columns = current.advancedConfig.gridColumns.coerceIn(8, 64)
-            val orderedSource = if (targetPage.layoutType == PageLayoutType.FREE) {
-                targetPage.components.sortedWith(compareBy({ it.y }, { it.x }))
-            } else {
-                targetPage.components
-            }
-            val updatedComponents = when (newType) {
-                PageLayoutType.FREE -> {
-                    var currentY = 0
-                    orderedSource.map { comp ->
-                        val w = if (targetPage.layoutType != PageLayoutType.LINEAR && comp.w in 1..columns) {
-                            comp.w
-                        } else {
-                            comp.type.defaultW.coerceIn(1, columns)
-                        }
-                        val h = if (comp.h > 0) comp.h else comp.type.defaultH.coerceAtLeast(2)
-                        val y = currentY
-                        currentY += h + 1
-                        comp.copy(x = 0, y = y, w = w, h = h)
-                    }
-                }
-                PageLayoutType.LINEAR -> {
-                    orderedSource.map { comp -> comp.copy(w = columns) }
-                }
-                PageLayoutType.GRID -> {
-                    orderedSource.map { comp ->
-                        val naturalW = if (targetPage.layoutType == PageLayoutType.LINEAR) {
-                            comp.type.defaultW.coerceIn(1, columns)
-                        } else {
-                            comp.w.coerceIn(1, columns)
-                        }
-                        comp.copy(w = naturalW)
-                    }
-                }
-            }
-            val updatedPage = targetPage.copy(layoutType = newType, components = updatedComponents)
+            val updatedPage = PageOperations.convertLayout(targetPage, newType, current.advancedConfig.gridColumns)
             val updatedPages = current.pages.toMutableList()
             updatedPages[pageIndex] = updatedPage
             current.copy(pages = updatedPages)
@@ -541,14 +372,9 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
     /**
      * 将指定页在 线性布局 -> 网格布局 -> 自由布局 之间循环切换
      */
+    @Synchronized
     fun togglePageLayoutType(pageIndex: Int) {
-        val currentPage = _state.value.pages.getOrNull(pageIndex) ?: return
-        val nextType = when (currentPage.layoutType) {
-            PageLayoutType.LINEAR -> PageLayoutType.GRID
-            PageLayoutType.GRID -> PageLayoutType.FREE
-            PageLayoutType.FREE -> PageLayoutType.LINEAR
-        }
-        setPageLayoutType(pageIndex, nextType)
+        _state.value.pages.getOrNull(pageIndex)?.id?.let { tryTogglePageLayoutType(it) }
     }
 
     // --- 组件管理（自由布局、网格布局与线性布局） ---
@@ -593,27 +419,8 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
             val targetPage = current.pages[pageIndex]
             val columns = current.advancedConfig.gridColumns
 
-            val resolvedItem = when (targetPage.layoutType) {
-                PageLayoutType.FREE -> {
-                    val clampedW = item.w.coerceIn(1, columns)
-                    val clampedH = item.h.coerceAtLeast(1)
-                    val resolvedY = if (item.y == 0 && targetPage.components.isNotEmpty()) {
-                        nextPlacementY(current, targetPage)
-                    } else {
-                        item.y.coerceAtLeast(0)
-                    }
-                    val resolvedX = if (item.x == 0 && targetPage.components.isNotEmpty()) {
-                        ((columns - clampedW) / 2).coerceIn(0, columns - clampedW)
-                    } else {
-                        item.x.coerceIn(0, (columns - clampedW).coerceAtLeast(0))
-                    }
-                    item.copy(x = resolvedX, y = resolvedY, w = clampedW, h = clampedH)
-                }
-                PageLayoutType.GRID -> item.copy(
-                    w = item.w.coerceIn(1, columns),
-                    h = item.h.coerceAtLeast(1)
-                )
-                PageLayoutType.LINEAR -> item.copy(w = columns)
+            val resolvedItem = ComponentPlacementOperations.inPage(targetPage = targetPage, item = item, columns = columns) {
+                nextPlacementY(current, targetPage)
             }
 
             val updatedComponents = targetPage.components + resolvedItem
@@ -634,12 +441,9 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
             val page = current.pages[pageIndex]
             val container = page.components.findComponent(containerId)?.takeIf { it.type.isContainerType() } ?: return@updateState current
             val columns = current.advancedConfig.gridColumns
-            val width = item.w.coerceIn(1, columns)
-            val child = item.copy(
-                x = item.x.coerceIn(0, columns - width),
-                y = if (item.y == 0) nextPlacementY(current, page, container.id) else item.y.coerceAtLeast(0),
-                w = width, h = item.h.coerceAtLeast(1)
-            )
+            val child = ComponentPlacementOperations.inContainer(item = item, columns = columns) {
+                nextPlacementY(current, page, container.id)
+            }
             val components = page.components.transformComponent(containerId) { it.copy(containerComponents = it.containerComponents + child) }
             val pages = current.pages.toMutableList().apply { this[pageIndex] = page.copy(components = components) }
             if (runCatching { validateComponentTrees(pages) }.isFailure) return@updateState current
@@ -657,22 +461,17 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
             val index = current.pages.indexOfFirst { it.id == pageId }
             if (index < 0) return@updateState current
             val page = current.pages[index]
-            val container = containerId?.let { page.components.findComponent(it) }
-            if (containerId != null && container?.type?.isContainerType() != true) return@updateState current
-            val siblings = container?.containerComponents ?: page.components
-            val width = item.w.coerceIn(1, current.advancedConfig.gridColumns)
-            val placed = item.copy(w = width, x = item.x.coerceIn(0, current.advancedConfig.gridColumns - width),
-                y = nextPlacementY(current, page, containerId))
-            val children = insertCardAbove(siblings, placed, beforeId,
-                free = if (container == null) page.layoutType == PageLayoutType.FREE else
-                    container.containerLayout == ContainerLayoutType.FREE,
-                columns = current.advancedConfig.gridColumns, rows = insertionRows(current, placed)) ?: return@updateState current
-            val components = if (container == null) children else
-                page.components.transformComponent(container.id) { it.copy(containerComponents = children) }
+            val candidate = ComponentInsertionOperations.placeMenu(
+                page = page, containerId = containerId, item = item, beforeId = beforeId,
+                columns = current.advancedConfig.gridColumns,
+                nextY = { nextPlacementY(current, page, containerId) },
+                rows = { placed -> insertionRows(current, placed) }
+            ) ?: return@updateState current
+            val components = candidate.components
             val pages = current.pages.toMutableList().apply { this[index] = page.copy(components = components) }
             if (runCatching { validateComponentTrees(pages) }.isFailure) return@updateState current
             added = true
-            current.copy(pages = pages, selectedComponentId = placed.id)
+            current.copy(pages = pages, selectedComponentId = candidate.placedId)
         }
         return accepted && added
     }
@@ -737,31 +536,16 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
             val sourceIndex = current.pages.indexOfFirst { it.id == sourcePageId }
             val targetIndex = current.pages.indexOfFirst { it.id == targetPageId }
             if (sourceIndex < 0 || targetIndex < 0) return@updateState current
-            val original = current.pages[sourceIndex].components.findComponent(componentId) ?: return@updateState current
-            // A widget host ID cannot be shared by two cards; copying widgets requires a new system binding.
-            if (copy && listOf(original).flattenComponents().any { it.widgetId >= 0 }) return@updateState current
-            if (targetContainerId != null && listOf(original).findComponent(targetContainerId) != null) return@updateState current
-            val destination = targetContainerId?.let { current.pages[targetIndex].components.findComponent(it) }
-            if (targetContainerId != null && destination?.type?.isContainerType() != true) return@updateState current
-            fun duplicate(node: ComponentItem): ComponentItem = node.copy(id = java.util.UUID.randomUUID().toString(),
-                containerActions = node.containerActions.map { it.copy(id = java.util.UUID.randomUUID().toString()) },
-                containerComponents = node.containerComponents.map(::duplicate))
-            val picked = if (copy) duplicate(original) else original
-            val pages = current.pages.toMutableList()
-            if (!copy) pages[sourceIndex] = pages[sourceIndex].copy(components = pages[sourceIndex].components.removeComponentTree(componentId))
-            val target = pages[targetIndex]
-            val siblings = if (targetContainerId == null) target.components else
-                target.components.findComponent(targetContainerId)?.containerComponents ?: return@updateState current
-            val columns = current.advancedConfig.gridColumns
-            val width = picked.w.coerceIn(1, columns)
-            val placed = picked.copy(x = picked.x.coerceIn(0, columns - width), w = width,
-                y = nextPlacementY(current, target, targetContainerId))
-            val components = if (targetContainerId == null) target.components + placed else
-                target.components.transformComponent(targetContainerId) { it.copy(containerComponents = it.containerComponents + placed) }
-            pages[targetIndex] = target.copy(components = components)
+            val result = ComponentTransferOperations.transfer(
+                originalPages = current.pages, sourceIndex = sourceIndex, targetIndex = targetIndex,
+                componentId = componentId, targetContainerId = targetContainerId, copy = copy,
+                columns = current.advancedConfig.gridColumns,
+                nextY = { target, containerId -> nextPlacementY(current, target, containerId) }
+            ) ?: return@updateState current
+            val pages = result.pages
             if (runCatching { validateComponentTrees(pages) }.isFailure) return@updateState current
             transferred = true
-            current.copy(pages = pages, selectedComponentId = placed.id)
+            current.copy(pages = pages, selectedComponentId = result.placedId)
         }
         return accepted && transferred
     }
@@ -776,9 +560,7 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
     fun savePhotoCube(pageId: String, componentId: String?, uris: List<String>,
         containerId: String? = null, beforeId: String? = null): Boolean {
         val images = uris.distinct().take(100)
-        if (images.isEmpty() || images.any { value -> !runCatching {
-                java.net.URI(value).let { it.scheme == "content" && !it.authority.isNullOrBlank() }
-            }.getOrDefault(false) }) return false
+        if (images.isEmpty() || images.any { !PickedCardOperations.validContentUri(it) }) return false
         return savePickedCard(pageId, componentId, "图片魔方", images.first(), ComponentType.PHOTO_CUBE,
             containerId, beforeId, images).also { saved ->
                 if (saved) images.forEach(::notifyImageAccessChanged)
@@ -787,8 +569,7 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
 
     /** Recheck the destination when the system picker returns, rather than trusting old indices. */
     private fun savePickedCard(pageId: String, componentId: String?, title: String, uri: String, type: ComponentType, containerId: String?, beforeId: String?, uris: List<String> = emptyList()): Boolean {
-        val validUri = runCatching { java.net.URI(uri).let { it.scheme == "content" && !it.authority.isNullOrBlank() } }.getOrDefault(false)
-        if (!validUri) return false
+        if (!PickedCardOperations.validContentUri(uri)) return false
         var saved = false
         val accepted = updateState { current ->
             saved = false
@@ -796,36 +577,22 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
             val pageIndex = current.pages.indexOfFirst { it.id == pageId }
             if (pageIndex < 0) return@updateState current
             val page = current.pages[pageIndex]
-            val existing = componentId?.let { id -> page.components.findComponent(id)?.takeIf { it.type == type } }
-            val container = containerId?.let { page.components.findComponent(it)?.takeIf { node -> node.type.isContainerType() } }
-            if (containerId != null && container == null) return@updateState current
-            if (container != null && existing != null && container.containerComponents.findComponent(existing.id) == null) return@updateState current
-            if (componentId != null && existing == null) return@updateState current
+            val target = PickedCardOperations.resolveTarget(page, componentId, containerId, type)
+                ?: return@updateState current
             val columns = current.advancedConfig.gridColumns
-            val base = existing ?: ComponentItem(
-                type = type,
-                w = type.defaultW.coerceAtMost(columns),
-                y = if (container != null) nextPlacementY(current, page, container.id)
-                    else if (page.layoutType == PageLayoutType.FREE) nextPlacementY(current, page) else 0
+            val picked = PickedCardOperations.build(
+                page = page, target = target, type = type, title = title, uri = uri, uris = uris,
+                columns = columns,
+                nextY = { targetContainerId -> nextPlacementY(current, page, targetContainerId) },
+                prepareNewFile = { base -> prepareNewComponent(pageIndex, base, containerId) }
             )
-            val readableBase = if (existing == null && type == ComponentType.FILE_SHORTCUT)
-                prepareNewComponent(pageIndex, base, containerId) else base
-            val named = if (type == ComponentType.PHOTO_CUBE && existing != null) readableBase
-                else readableBase.copy(title = title.ifBlank { type.label })
-            val picked = when (type) {
-                ComponentType.FILE_SHORTCUT -> named.copy(intentUri = uri)
-                ComponentType.PHOTO_CUBE -> named.copy(photoCubeUris = uris.toList())
-                else -> named.copy(imageUri = uri)
-            }
-            val siblings = container?.containerComponents ?: page.components
-            val inserted = if (existing != null) siblings else insertCardAbove(siblings, picked, beforeId,
-                if (container == null) page.layoutType == PageLayoutType.FREE else
-                    container.containerLayout == ContainerLayoutType.FREE,
-                columns, insertionRows(current, picked)) ?: return@updateState current
-            val components = when {
-                existing != null -> page.components.transformComponent(existing.id) { picked }
-                container != null -> page.components.transformComponent(container.id) { it.copy(containerComponents = inserted) }
-                else -> inserted
+            val components = if (target.existing != null) {
+                page.components.transformComponent(target.existing.id) { picked }
+            } else {
+                ComponentInsertionOperations.insert(
+                    page = page, container = target.container, item = picked, beforeId = beforeId,
+                    columns = columns, rows = insertionRows(current, picked)
+                ) ?: return@updateState current
             }
             val pages = current.pages.toMutableList().apply { this[pageIndex] = page.copy(components = components) }
             if (runCatching { validateComponentTrees(pages) }.isFailure) return@updateState current
@@ -834,6 +601,43 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
         }
         return accepted && saved
     }
+
+    /** Resolve stable identities and execute while holding the same monitor as updateState. */
+    @Synchronized
+    private fun acceptLayoutMutation(pageId: String, componentId: String? = null,
+        write: (Int) -> Boolean): LayoutMutationResult {
+        val state = _state.value
+        if (state.advancedConfig.layoutLocked) return LayoutMutationResult.TARGET_CHANGED
+        val index = state.pages.indexOfFirst { it.id == pageId }
+        if (index < 0 || componentId != null && state.pages[index].components.findComponent(componentId) == null)
+            return LayoutMutationResult.TARGET_CHANGED
+        return if (write(index)) LayoutMutationResult.APPLIED else LayoutMutationResult.WRITE_REJECTED
+    }
+
+    internal fun tryRemoveComponent(pageId: String, id: String): LayoutMutationResult =
+        acceptLayoutMutation(pageId, id) { removeComponent(it, id) }
+
+    internal fun tryResetComponentStyle(pageId: String, id: String): LayoutMutationResult =
+        acceptLayoutMutation(pageId, id) { resetComponentStyleAtIndex(it, id) }
+
+    internal fun trySetPageLayoutType(pageId: String, type: PageLayoutType): LayoutMutationResult =
+        acceptLayoutMutation(pageId) { setPageLayoutTypeAtIndex(it, type) }
+
+    internal fun tryTogglePageLayoutType(pageId: String): LayoutMutationResult =
+        acceptLayoutMutation(pageId) { index ->
+            val next = when (_state.value.pages[index].layoutType) {
+                PageLayoutType.LINEAR -> PageLayoutType.GRID
+                PageLayoutType.GRID -> PageLayoutType.FREE
+                PageLayoutType.FREE -> PageLayoutType.LINEAR
+            }
+            setPageLayoutTypeAtIndex(index, next)
+        }
+
+    internal fun tryFitPageGridColumnCount(pageId: String, columns: Int, width: Float): LayoutMutationResult =
+        acceptLayoutMutation(pageId) { fitPageGridColumnCountAtIndex(it, columns, width) }
+
+    internal fun tryUpdateComponent(pageId: String, id: String, transform: (ComponentItem) -> ComponentItem): LayoutMutationResult =
+        acceptLayoutMutation(pageId, id) { updateComponent(it, id, transform) }
 
     /**
      * 更新组件（实时拖动网格坐标、尺寸与属性修改）
@@ -847,25 +651,9 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
             if (targetPage.components.findComponent(componentId) == null) return@updateState current
             val columns = current.advancedConfig.gridColumns
 
-            val updatedComponents = runCatching { targetPage.components.transformComponent(componentId) { comp ->
-                val transformed = transform(comp)
-                val clampedW = transformed.w.coerceIn(1, columns)
-                val clampedSpanX = if (transformed.gridSpanX >= GRID_SPAN_FULL_ROW) {
-                    GRID_SPAN_FULL_ROW
-                } else {
-                    transformed.gridSpanX.coerceIn(0, 12)
-                }
-                transformed.copy(
-                    x = transformed.x.coerceIn(0, (columns - clampedW).coerceAtLeast(0)),
-                    y = transformed.y.coerceAtLeast(0),
-                    w = clampedW,
-                    h = transformed.h.coerceAtLeast(1),
-                    gridSpanX = clampedSpanX,
-                    gridSpanY = transformed.gridSpanY.coerceIn(0, 12),
-                    gridCol = transformed.gridCol.coerceIn(-1, 63),
-                    gridRow = transformed.gridRow.coerceIn(-1, 200)
-                )
-            } }.getOrElse { return@updateState current }
+            val updatedComponents = runCatching {
+                ComponentUpdateOperations.transform(targetPage.components, componentId, columns, transform)
+            }.getOrElse { return@updateState current }
 
             val updatedPages = current.pages.toMutableList()
             updatedPages[pageIndex] = targetPage.copy(components = updatedComponents)
@@ -879,18 +667,23 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
     /**
      * 移除组件；在网格页或网格容器中若存在 2D 固定坐标兄弟项，先固化剩余兄弟项坐标以防空位塌缩。
      */
+    @Synchronized
     fun removeComponent(pageIndex: Int, componentId: String): Boolean {
+        // Legacy callers observe storage acceptance, including no-ops. Keep the dangling
+        // selection cleanup below; UI commands use tryRemoveComponent for target outcomes.
         return updateState { current ->
             if (current.advancedConfig.layoutLocked) return@updateState current
             if (pageIndex !in current.pages.indices) return@updateState current
             val targetPage = current.pages[pageIndex]
             val gridWidth = estimatedPageGridWidthDp()
-            val updatedComponents = removeFromListPreservingPinned(
+            val updatedComponents = ComponentRemovalOperations.remove(
                 items = targetPage.components,
                 targetId = componentId,
                 isGridScope = targetPage.layoutType == PageLayoutType.GRID,
                 pageConfig = targetPage,
-                state = current,
+                gridColumns = current.advancedConfig.gridColumns,
+                heightUnitDp = current.advancedConfig.heightUnitDp,
+                fontScale = { measuredFontScale },
                 pageGridWidthDp = gridWidth
             )
             val updatedPages = current.pages.toMutableList()
@@ -902,74 +695,6 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
         }
     }
 
-    private fun removeFromListPreservingPinned(
-        items: List<ComponentItem>,
-        targetId: String,
-        isGridScope: Boolean,
-        pageConfig: PageConfig,
-        state: GlobalMinusOneState,
-        pageGridWidthDp: Float,
-        container: ComponentItem? = null
-    ): List<ComponentItem> {
-        val directMatch = items.any { it.id == targetId }
-        val remaining = items.filterNot { it.id == targetId }
-        if (directMatch) {
-            if (!isGridScope || remaining.none { it.gridCol >= 0 && it.gridRow >= 0 }) {
-                return remaining
-            }
-            val resolvedCoords: Map<String, Pair<Int, Int>> = if (container == null) {
-                arrangePageGridComponents(
-                    components = items,
-                    availableWidthDp = pageGridWidthDp,
-                    itemSizeDp = pageConfig.gridItemSizeDp,
-                    itemGapDp = pageConfig.gridItemGapDp,
-                    gridColumns = state.advancedConfig.gridColumns,
-                    configuredHeightUnitDp = state.advancedConfig.heightUnitDp,
-                    fontScale = measuredFontScale,
-                    columnCount = pageConfig.gridColumnCount,
-                    iconSizeDp = pageConfig.gridIconSizeDp,
-                    fillGaps = pageConfig.gridFillGaps,
-                    rowGapDp = pageConfig.gridRowGapDp
-                ).placements.associate { it.id to (it.col to it.row) }
-            } else {
-                val stepY = if (state.advancedConfig.heightUnitDp > 0) state.advancedConfig.heightUnitDp.toFloat()
-                    else pageGridWidthDp / state.advancedConfig.gridColumns.coerceIn(8, 64)
-                containerGridChildBounds(
-                    children = items,
-                    columns = state.advancedConfig.gridColumns,
-                    widthDp = pageGridWidthDp,
-                    stepYDp = stepY,
-                    configuredHeightUnitDp = state.advancedConfig.heightUnitDp,
-                    fontScale = measuredFontScale,
-                    iconColumns = container.containerColumns.coerceIn(1, 8),
-                    itemGapDp = container.containerItemGapDp,
-                    itemSizeDp = container.containerItemSizeDp,
-                    iconSizeDp = container.containerIconSizeDp,
-                    rowGapDp = containerRowGapDp(container),
-                    itemPaddingVerticalDp = container.containerItemPaddingVerticalDp,
-                    iconLabelGapDp = container.containerIconLabelGapDp
-                ).associate { it.item.id to (it.col to it.row) }
-            }
-            return remaining.map { child ->
-                if (child.gridCol >= 0 && child.gridRow >= 0) child
-                else resolvedCoords[child.id]?.let { (c, r) -> child.copy(gridCol = c, gridRow = r) } ?: child
-            }
-        }
-        return items.map { child ->
-            if (!child.type.isContainerType() || child.containerComponents.isEmpty()) child
-            else child.copy(
-                containerComponents = removeFromListPreservingPinned(
-                    items = child.containerComponents,
-                    targetId = targetId,
-                    isGridScope = child.containerLayout == ContainerLayoutType.GRID,
-                    pageConfig = pageConfig,
-                    state = state,
-                    pageGridWidthDp = pageGridWidthDp,
-                    container = child
-                )
-            )
-        }
-    }
 
     /**
      * 线性布局中上下移动卡片顺序
@@ -1005,23 +730,12 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
     ): Boolean {
         return updatePageConfig(pageIndex) { page ->
             if (page.layoutType != PageLayoutType.GRID) return@updatePageConfig page
-            val resolved = resolvePageGridDropPlacements(
-                components = page.components,
-                availableWidthDp = availableWidthDp,
-                itemSizeDp = page.gridItemSizeDp,
-                itemGapDp = page.gridItemGapDp,
+            ComponentGridOperations.placeComponentInPageGrid(
+                page = page, movedId = movedId, targetCol = targetCol, targetRow = targetRow,
+                availableWidthDp = availableWidthDp, fontScale = fontScale,
                 gridColumns = _state.value.advancedConfig.gridColumns,
-                configuredHeightUnitDp = _state.value.advancedConfig.heightUnitDp,
-                fontScale = fontScale,
-                columnCount = page.gridColumnCount,
-                iconSizeDp = page.gridIconSizeDp,
-                fillGaps = page.gridFillGaps,
-                rowGapDp = page.gridRowGapDp,
-                movedId = movedId,
-                targetCol = targetCol,
-                targetRow = targetRow
+                heightUnitDp = _state.value.advancedConfig.heightUnitDp
             )
-            page.copy(components = resolved)
         }
     }
 
@@ -1036,23 +750,12 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
     ): Boolean {
         return updatePageConfig(pageIndex) { page ->
             if (page.layoutType != PageLayoutType.GRID) return@updatePageConfig page
-            val updated = nudgePageGridComponent(
-                components = page.components,
-                availableWidthDp = availableWidthDp,
-                itemSizeDp = page.gridItemSizeDp,
-                itemGapDp = page.gridItemGapDp,
+            ComponentGridOperations.nudgeComponentInPageGrid(
+                page = page, movedId = movedId, deltaCol = deltaCol, deltaRow = deltaRow,
+                availableWidthDp = availableWidthDp, fontScale = fontScale,
                 gridColumns = _state.value.advancedConfig.gridColumns,
-                configuredHeightUnitDp = _state.value.advancedConfig.heightUnitDp,
-                fontScale = fontScale,
-                columnCount = page.gridColumnCount,
-                iconSizeDp = page.gridIconSizeDp,
-                fillGaps = page.gridFillGaps,
-                rowGapDp = page.gridRowGapDp,
-                movedId = movedId,
-                deltaCol = deltaCol,
-                deltaRow = deltaRow
+                heightUnitDp = _state.value.advancedConfig.heightUnitDp
             )
-            page.copy(components = updated)
         }
     }
 
@@ -1064,24 +767,11 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
     ): Boolean {
         return updatePageConfig(pageIndex) { page ->
             if (page.layoutType != PageLayoutType.GRID) return@updatePageConfig page
-            val current = arrangePageGridComponents(
-                components = page.components,
-                availableWidthDp = availableWidthDp,
-                itemSizeDp = page.gridItemSizeDp,
-                itemGapDp = page.gridItemGapDp,
+            ComponentGridOperations.compactPageGridPlacements(
+                page = page, availableWidthDp = availableWidthDp, fontScale = fontScale,
                 gridColumns = _state.value.advancedConfig.gridColumns,
-                configuredHeightUnitDp = _state.value.advancedConfig.heightUnitDp,
-                fontScale = fontScale,
-                columnCount = page.gridColumnCount,
-                iconSizeDp = page.gridIconSizeDp,
-                fillGaps = page.gridFillGaps,
-                rowGapDp = page.gridRowGapDp
+                heightUnitDp = _state.value.advancedConfig.heightUnitDp
             )
-            val coords = current.placements.associate { it.id to (it.row to it.col) }
-            val compacted = page.components
-                .sortedWith(compareBy({ coords[it.id]?.first ?: Int.MAX_VALUE }, { coords[it.id]?.second ?: Int.MAX_VALUE }))
-                .map { it.copy(gridCol = -1, gridRow = -1) }
-            page.copy(components = compacted)
         }
     }
 
@@ -1099,25 +789,12 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
     ): Boolean {
         return updateComponent(pageIndex, containerId) { container ->
             if (container.containerLayout != ContainerLayoutType.GRID) return@updateComponent container
-            val resolved = resolveContainerGridDropPlacements(
-                children = container.containerComponents,
-                columns = _state.value.advancedConfig.gridColumns,
-                widthDp = widthDp,
-                stepYDp = stepYDp,
-                configuredHeightUnitDp = _state.value.advancedConfig.heightUnitDp,
-                fontScale = fontScale,
-                iconColumns = iconColumns,
-                itemGapDp = container.containerItemGapDp,
-                itemSizeDp = container.containerItemSizeDp,
-                iconSizeDp = container.containerIconSizeDp,
-                rowGapDp = containerRowGapDp(container),
-                itemPaddingVerticalDp = container.containerItemPaddingVerticalDp,
-                iconLabelGapDp = container.containerIconLabelGapDp,
-                movedId = movedId,
-                targetCol = targetCol,
-                targetRow = targetRow
+            ComponentGridOperations.placeChildInContainerGrid(
+                container = container, movedId = movedId, targetCol = targetCol, targetRow = targetRow,
+                widthDp = widthDp, stepYDp = stepYDp, iconColumns = iconColumns, fontScale = fontScale,
+                gridColumns = _state.value.advancedConfig.gridColumns,
+                heightUnitDp = _state.value.advancedConfig.heightUnitDp
             )
-            container.copy(containerComponents = resolved)
         }
     }
 
@@ -1132,14 +809,9 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
     ): Boolean {
         return updateComponent(pageIndex, containerId) { container ->
             if (container.containerLayout != ContainerLayoutType.GRID) return@updateComponent container
-            container.copy(
-                containerActions = commitContainerActionGridPlacement(
-                    actions = container.containerActions,
-                    movedId = movedId,
-                    columns = iconColumns,
-                    targetCol = targetCol,
-                    targetRow = targetRow
-                )
+            ComponentGridOperations.placeActionInContainerGrid(
+                container = container, movedId = movedId,
+                targetCol = targetCol, targetRow = targetRow, iconColumns = iconColumns
             )
         }
     }
@@ -1155,33 +827,26 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
     ): Boolean {
         return updateComponent(pageIndex, containerId) { container ->
             if (container.containerLayout != ContainerLayoutType.GRID) return@updateComponent container
-            val bounds = containerGridChildBounds(
-                children = container.containerComponents,
-                columns = _state.value.advancedConfig.gridColumns,
-                widthDp = widthDp,
-                stepYDp = stepYDp,
-                configuredHeightUnitDp = _state.value.advancedConfig.heightUnitDp,
-                fontScale = fontScale,
-                iconColumns = iconColumns,
-                itemGapDp = container.containerItemGapDp,
-                itemSizeDp = container.containerItemSizeDp,
-                iconSizeDp = container.containerIconSizeDp,
-                rowGapDp = containerRowGapDp(container),
-                itemPaddingVerticalDp = container.containerItemPaddingVerticalDp,
-                iconLabelGapDp = container.containerIconLabelGapDp
-            ).associate { it.item.id to (it.row to it.col) }
-            val compacted = container.containerComponents
-                .sortedWith(compareBy({ bounds[it.id]?.first ?: Int.MAX_VALUE }, { bounds[it.id]?.second ?: Int.MAX_VALUE }))
-                .map { it.copy(gridCol = -1, gridRow = -1) }
-            container.copy(containerComponents = compacted)
+            ComponentGridOperations.compactContainerGridPlacements(
+                container = container, widthDp = widthDp, stepYDp = stepYDp,
+                iconColumns = iconColumns, fontScale = fontScale,
+                gridColumns = _state.value.advancedConfig.gridColumns,
+                heightUnitDp = _state.value.advancedConfig.heightUnitDp
+            )
         }
     }
 
     /**
      * 重置组件样式为全局默认
      */
+    @Synchronized
     fun resetComponentStyle(pageIndex: Int, componentId: String) {
-        updateComponent(pageIndex, componentId) { comp ->
+        val pageId = _state.value.pages.getOrNull(pageIndex)?.id ?: return
+        tryResetComponentStyle(pageId, componentId)
+    }
+
+    private fun resetComponentStyleAtIndex(pageIndex: Int, componentId: String): Boolean {
+        return updateComponent(pageIndex, componentId) { comp ->
             comp.copy(
                 bgColorHex = null,
                 bgAlphaPercent = -1,
@@ -1210,14 +875,40 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
         }
     }
 
-    fun removeActionFromContainer(pageIndex: Int, containerId: String, actionId: String) {
-        updateComponent(pageIndex, containerId) { comp ->
+    /** Preserve legacy action identity and validate the original container under the transaction lock. */
+    @Synchronized
+    fun tryUpdateContainerAction(pageIndex: Int, containerId: String, actionId: String,
+        transform: (QuickActionItem) -> QuickActionItem): Boolean {
+        val current = _state.value
+        val target = current.pages.getOrNull(pageIndex)?.components?.findComponent(containerId) ?: return false
+        if (current.advancedConfig.layoutLocked || !target.type.isContainerType() || target.containerActions.none { it.id == actionId }) return false
+        return updateComponent(pageIndex, containerId) { container ->
+            container.copy(containerActions = container.containerActions.map {
+                if (it.id == actionId) transform(it).copy(id = it.id) else it
+            })
+        }
+    }
+
+    fun removeActionFromContainer(pageIndex: Int, containerId: String, actionId: String) { tryRemoveActionFromContainer(pageIndex, containerId, actionId) }
+
+    @Synchronized
+    fun tryRemoveActionFromContainer(pageIndex: Int, containerId: String, actionId: String): Boolean {
+        val current = _state.value
+        val target = current.pages.getOrNull(pageIndex)?.components?.findComponent(containerId) ?: return false
+        if (current.advancedConfig.layoutLocked || !target.type.isContainerType() || target.containerActions.none { it.id == actionId }) return false
+        return updateComponent(pageIndex, containerId) { comp ->
             if (!comp.type.isContainerType()) comp else comp.copy(containerActions = comp.containerActions.filterNot { it.id == actionId })
         }
     }
 
-    fun clearContainerActions(pageIndex: Int, containerId: String) {
-        updateComponent(pageIndex, containerId) { comp ->
+    fun clearContainerActions(pageIndex: Int, containerId: String) { tryClearContainerActions(pageIndex, containerId) }
+
+    @Synchronized
+    fun tryClearContainerActions(pageIndex: Int, containerId: String): Boolean {
+        val current = _state.value
+        val target = current.pages.getOrNull(pageIndex)?.components?.findComponent(containerId) ?: return false
+        if (current.advancedConfig.layoutLocked || !target.type.isContainerType()) return false
+        return updateComponent(pageIndex, containerId) { comp ->
             if (!comp.type.isContainerType()) comp else comp.copy(containerActions = emptyList(), containerComponents = emptyList())
         }
     }
@@ -1256,37 +947,7 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
         panelAlpha: Int = 0
     ) {
         updateThemeConfig { current ->
-            if (!darkMode) {
-                current.copy(
-                    isDarkMode = false,
-                    followSystemDark = false,
-                    maskColorHex = 0xFF000000L,
-                    maskAlphaPercent = 20,
-                    panelBgColorHex = 0xFFF7F8FAL,
-                    panelBgAlphaPercent = panelAlpha,
-                    defaultCardBgColorHex = 0xFFFFFFFFL,
-                    cardBgAlphaPercent = cardAlpha,
-                    defaultTextColorHex = 0xFF1F2329L,
-                    textAlphaPercent = 100,
-                    titleColorHex = null,
-                    titleAlphaPercent = 100
-                )
-            } else {
-                current.copy(
-                    isDarkMode = true,
-                    followSystemDark = false,
-                    maskColorHex = 0xFF000000L,
-                    maskAlphaPercent = 45,
-                    panelBgColorHex = 0xFF14171FL,
-                    panelBgAlphaPercent = panelAlpha,
-                    defaultCardBgColorHex = 0xFF222630L,
-                    cardBgAlphaPercent = cardAlpha,
-                    defaultTextColorHex = 0xFFF5F7FAL,
-                    textAlphaPercent = 100,
-                    titleColorHex = null,
-                    titleAlphaPercent = 100
-                )
-            }
+            RepositoryStateOperations.lightDarkPresetTheme(current, darkMode, cardAlpha, panelAlpha)
         }
     }
 
@@ -1367,26 +1028,13 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
     fun createConfigProfile(name: String, author: String = "默认", description: String = ""): ConfigProfile {
         check(!_state.value.editMode) { "请先保存或取消当前编辑，再创建方案" }
         try {
-            val profile = ConfigProfile(
-                id = UUID.randomUUID().toString(),
-                name = name.ifBlank { "配置方案" },
-                author = author,
-                description = description,
-                updatedAt = System.currentTimeMillis(),
-                stateJson = json.encodeToString(
-                    _state.value.copy(
-                        profiles = emptyList(),
-                        activeProfileId = "default",
-                        editMode = false,
-                        selectedComponentId = null
-                    )
-                )
+            val profileId = UUID.randomUUID().toString()
+            val updatedAt = System.currentTimeMillis()
+            val profile = ConfigProfileOperations.createSnapshot(
+                _state.value, profileId, name, author, description, updatedAt
             )
             val accepted = updateState { current ->
-                current.copy(
-                    profiles = current.profiles + profile,
-                    activeProfileId = profile.id
-                )
+                ConfigProfileOperations.add(current, profile)
             }
             if (!accepted) throw IllegalStateException("配置方案未创建，请重试", lastPersistenceFailure)
             return profile
@@ -1403,13 +1051,12 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
         if (_state.value.advancedConfig.layoutLocked || _state.value.editMode) return false
         val profile = _state.value.profiles.find { it.id == profileId } ?: return false
         return try {
-            val parsed = profile.stateJson.takeIf { it.isNotBlank() }?.let(::decodeValidatedState)
+            val parsed = ConfigProfileOperations.decodeSnapshot(profile)
             var applied = false
             val accepted = updateState { current ->
                 applied = !current.advancedConfig.layoutLocked && !current.editMode
                 if (!applied) return@updateState current
-                parsed?.copy(profiles = current.profiles, activeProfileId = profileId)
-                    ?: current.copy(activeProfileId = profileId)
+                ConfigProfileOperations.apply(current, profileId, parsed)
             }
             accepted && applied
         } catch (_: Exception) {
@@ -1424,13 +1071,13 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
                 return@updateState current // 无法删除正在使用的配置
             }
             success = true
-            current.copy(profiles = current.profiles.filterNot { it.id == profileId })
+            current.copy(profiles = ConfigProfileOperations.delete(current.profiles, profileId))
         }
         return accepted && success
     }
 
     fun exportConfigCode(): String {
-        return prettyJson.encodeToString(_state.value)
+        return ConfigurationCodec.encode(_state.value, pretty = true)
     }
 
     /** Imports append only; picker targets are stable IDs and never fall back to another parent. */
@@ -1447,22 +1094,14 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
     @Synchronized
     fun appendImportedFolder(folder: ComponentItem, targetPageId: String, targetContainerId: String? = null): Boolean {
         val current = _state.value
-        if (current.advancedConfig.layoutLocked || current.editMode || folder.type != ComponentType.FOLDER) return false
-        val index = current.pages.indexOfFirst { it.id == targetPageId }
-        if (index < 0) return false
-        val page = current.pages[index]
-        val parent = targetContainerId?.let { page.components.findComponent(it) }
-        if (targetContainerId != null && parent?.type?.isContainerType() != true) return false
-        val columns = current.advancedConfig.gridColumns
-        val width = folder.w.coerceIn(1, columns)
-        val free = parent?.containerLayout?.let { it == ContainerLayoutType.FREE } ?: (page.layoutType == PageLayoutType.FREE)
-        val placed = folder.copy(w = width, x = folder.x.coerceIn(0, columns - width),
-            y = if (free) nextPlacementY(current, page, targetContainerId) else 0)
-        val components = if (parent == null) page.components + placed else
-            page.components.transformComponent(parent.id) { it.copy(containerComponents = it.containerComponents + placed) }
-        val pages = current.pages.toMutableList().apply { this[index] = page.copy(components = components) }
-        if (runCatching { validateComponentTrees(pages) }.isFailure) return false
-        return commitImportedState(current.copy(pages = pages))
+        val updated = RepositoryStateOperations.appendImportedFolderState(
+            current = current,
+            folder = folder,
+            targetPageId = targetPageId,
+            targetContainerId = targetContainerId,
+            nextY = { page, cid -> nextPlacementY(current, page, cid) }
+        ) ?: return false
+        return commitImportedState(updated)
     }
 
     @Synchronized
@@ -1472,67 +1111,23 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
         targetContainerId: String? = null
     ): Boolean {
         val current = _state.value
-        if (containers.isEmpty() || current.advancedConfig.layoutLocked || current.editMode) return false
-        if (containers.any { !it.type.isContainerType() }) return false
-        val index = current.pages.indexOfFirst { it.id == targetPageId }
-        if (index < 0) return false
-        var workingPage = current.pages[index]
-        val initialParent = targetContainerId?.let { workingPage.components.findComponent(it) }
-        if (targetContainerId != null && initialParent?.type?.isContainerType() != true) return false
-        val columns = current.advancedConfig.gridColumns.coerceIn(8, 64)
-        val free = initialParent?.containerLayout?.let { it == ContainerLayoutType.FREE }
-            ?: (workingPage.layoutType == PageLayoutType.FREE)
-        var rowX = 0
-        var rowY = if (free) nextPlacementY(current, workingPage, targetContainerId) else 0
-        var rowMaxH = 0
-        for (item in containers) {
-            val width = if (!free && targetContainerId == null && item.type == ComponentType.CONTAINER_BOX) {
-                columns
-            } else {
-                item.w.coerceIn(1, columns)
-            }
-            val placed = if (!free) {
-                item.copy(w = width, x = 0, y = 0)
-            } else if (item.type == ComponentType.FOLDER && width * 2 <= columns) {
-                if (rowX + width > columns) {
-                    rowX = 0
-                    rowY += rowMaxH.coerceAtLeast(8) + 1
-                    rowMaxH = 0
-                }
-                val folderPlaced = item.copy(w = width, x = rowX, y = rowY)
-                rowX += width
-                rowMaxH = maxOf(rowMaxH, folderPlaced.h.coerceAtLeast(8))
-                folderPlaced
-            } else {
-                val y = nextPlacementY(current, workingPage, targetContainerId)
-                val placedBox = item.copy(w = width, x = item.x.coerceIn(0, (columns - width).coerceAtLeast(0)), y = y)
-                rowX = 0
-                rowMaxH = 0
-                placedBox
-            }
-            val updatedComponents = if (targetContainerId == null) {
-                workingPage.components + placed
-            } else {
-                workingPage.components.transformComponent(targetContainerId) {
-                    it.copy(containerComponents = it.containerComponents + placed)
-                }
-            }
-            workingPage = workingPage.copy(components = updatedComponents)
-            if (free && rowX == 0) rowY = nextPlacementY(current, workingPage, targetContainerId)
-        }
-        val pages = current.pages.toMutableList().apply { this[index] = workingPage }
-        if (runCatching { validateComponentTrees(pages) }.isFailure) return false
-        return commitImportedState(current.copy(pages = pages))
+        val updated = RepositoryStateOperations.appendImportedContainersState(
+            current = current,
+            containers = containers,
+            targetPageId = targetPageId,
+            targetContainerId = targetContainerId,
+            nextY = { page, cid -> nextPlacementY(current, page, cid) }
+        ) ?: return false
+        return commitImportedState(updated)
     }
 
     private fun commitImportedState(value: GlobalMinusOneState): Boolean {
         ensureCorruptStateBackup()
-        val previous = prefs.getString(KEY_STATE_JSON, null)
-        val committed = runCatching { prefs.edit().putString(KEY_STATE_JSON, json.encodeToString(value)).commit() }.getOrDefault(false)
+        val previous = configurationStore.readRaw()
+        val committed = runCatching { configurationStore.commitState(value) }.getOrDefault(false)
         if (!committed) {
             reportPersistenceFailure()
-            val restored = runCatching { if (previous == null) prefs.edit().remove(KEY_STATE_JSON).commit()
-                else prefs.edit().putString(KEY_STATE_JSON, previous).commit() }.getOrDefault(false)
+            val restored = runCatching { configurationStore.restoreRaw(previous) }.getOrDefault(false)
             check(restored) { "写入失败且回滚失败；请保留恢复备份并检查存储空间" }
             return false
         }
@@ -1541,7 +1136,7 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
         persistenceNeedsRetry = false
         _persistenceError.value = null
         lastPersistenceFailure = null
-        verifiedCorruptBackup = null
+        configurationStore.clearVerifiedCorruptBackup()
         _corruptStateRecoveredNotice.value = false
         _state.value = value
         return true
@@ -1555,16 +1150,15 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
         val parsed = decodeValidatedState(stateJson)
         com.example.globalminusone.data.backup.NativeBackupCodec.validateState(parsed)
         ensureCorruptStateBackup()
-        val oldRaw = prefs.getString(KEY_STATE_JSON, null)
+        val oldRaw = configurationStore.readRaw()
         try {
             commitCompanion()
-            check(prefs.edit().putString(KEY_STATE_JSON, json.encodeToString(parsed)).commit()) { "配置写入失败" }
+            check(configurationStore.commitState(parsed)) { "配置写入失败" }
         } catch (failure: Exception) {
             reportPersistenceFailure()
             val problems = mutableListOf<String>()
             runCatching {
-                check(if (oldRaw == null) prefs.edit().remove(KEY_STATE_JSON).commit()
-                    else prefs.edit().putString(KEY_STATE_JSON, oldRaw).commit())
+                check(configurationStore.restoreRaw(oldRaw))
             }.onFailure { problems += "配置回滚失败" }
             runCatching(rollbackCompanion).onFailure { problems += "浏览器设置回滚失败" }
             if (problems.isNotEmpty()) throw IllegalStateException("${problems.joinToString()}；请使用恢复前备份", failure)
@@ -1575,7 +1169,7 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
         persistenceNeedsRetry = false
         _persistenceError.value = null
         lastPersistenceFailure = null
-        verifiedCorruptBackup = null
+        configurationStore.clearVerifiedCorruptBackup()
         _corruptStateRecoveredNotice.value = false
         _state.value = parsed
         _configurationRestoreGeneration.update { it + 1 }
@@ -1586,7 +1180,7 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
         // 内置默认方案没有快照，沿用应用时的语义：使用当前配置。
         if (profile.stateJson.isBlank()) return exportConfigCode()
         return try {
-            prettyJson.encodeToString(decodeValidatedState(profile.stateJson))
+            ConfigProfileOperations.exportSnapshot(profile)
         } catch (_: Exception) {
             null
         }
@@ -1614,51 +1208,21 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
         var added = false
         val accepted = updateState { current ->
             added = false
-            if (current.advancedConfig.layoutLocked) return@updateState current
-            val pageIdx = if (pageId != null) current.pages.indexOfFirst { it.id == pageId } else current.currentPageIndex
-            val targetPage = current.pages.getOrNull(pageIdx) ?: return@updateState current
-            val container = containerId?.let { targetPage.components.findComponent(it)?.takeIf { node -> node.type.isContainerType() } }
-            if (containerId != null && container == null) return@updateState current
-            val siblings = container?.containerComponents ?: targetPage.components
-            val widgetComponent = ComponentItem(
-                id = "widget_${widgetInfo.appWidgetId}", type = ComponentType.APP_WIDGET,
-                title = widgetInfo.label.ifBlank { "桌面小部件" }, widgetId = widgetInfo.appWidgetId,
-                w = current.advancedConfig.gridColumns, h = 14, y = nextPlacementY(current, targetPage, containerId)
-            )
-            val inserted = insertCardAbove(siblings, widgetComponent, beforeId,
-                if (container == null) targetPage.layoutType == PageLayoutType.FREE else
-                    container.containerLayout == ContainerLayoutType.FREE,
-                current.advancedConfig.gridColumns, insertionRows(current, widgetComponent)) ?: return@updateState current
-            val components = if (container != null) targetPage.components.transformComponent(container.id) {
-                it.copy(containerComponents = inserted)
-            } else inserted
-            val pages = current.pages.toMutableList().apply { this[pageIdx] = targetPage.copy(components = components) }
-            if (runCatching { validateComponentTrees(pages) }.isFailure) return@updateState current
-            val newCard = CardConfig(id = "widget_${widgetInfo.appWidgetId}", type = CardType.APP_WIDGET,
-                title = widgetInfo.label.ifBlank { "桌面小部件 #${widgetInfo.appWidgetId}" },
-                enabled = true, order = current.cards.size, widgetId = widgetInfo.appWidgetId)
-            added = true
-            current.copy(pages = pages,
-                boundWidgets = current.boundWidgets.filterNot { it.appWidgetId == widgetInfo.appWidgetId } + widgetInfo,
-                cards = if (container == null) current.cards + newCard else current.cards,
-                selectedComponentId = widgetComponent.id)
+            RepositoryStateOperations.addBoundWidgetState(
+                current = current,
+                widgetInfo = widgetInfo,
+                pageId = pageId,
+                containerId = containerId,
+                beforeId = beforeId,
+                nextY = { page, cid -> nextPlacementY(current, page, cid) },
+                insertionRows = { widget -> insertionRows(current, widget) }
+            )?.also { added = true } ?: current
         }
         return accepted && added
     }
 
     fun updateWidgetHeight(appWidgetId: Int, heightDp: Int) {
-        updateState { current ->
-            if (current.advancedConfig.layoutLocked) return@updateState current
-            val updatedWidgets = current.boundWidgets.map {
-                if (it.appWidgetId == appWidgetId) it.copy(heightDp = heightDp.coerceIn(80, 520)) else it
-            }
-            val updatedPages = current.pages.map { page ->
-                page.copy(components = page.components.mapComponentTree { comp ->
-                    if (comp.widgetId == appWidgetId) comp.copy(h = (heightDp / 20).coerceIn(4, 30)) else comp
-                })
-            }
-            current.copy(boundWidgets = updatedWidgets, pages = updatedPages)
-        }
+        updateState { current -> RepositoryStateOperations.updateWidgetHeightState(current, appWidgetId, heightDp) }
     }
 
     // --- 快捷方式与应用项 ---
@@ -1721,19 +1285,19 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
         if (trimmed.isEmpty()) return
         updateState { current ->
             val item = TodoItem(id = UUID.randomUUID().toString(), content = trimmed, done = false)
-            current.copy(todos = listOf(item) + current.todos)
+            current.copy(todos = UserContentOperations.addTodo(current.todos, item))
         }
     }
 
     fun toggleTodo(id: String) {
         updateState { current ->
-            current.copy(todos = current.todos.map { if (it.id == id) it.copy(done = !it.done) else it })
+            current.copy(todos = UserContentOperations.toggleTodo(current.todos, id))
         }
     }
 
     fun deleteTodo(id: String) {
         updateState { current ->
-            current.copy(todos = current.todos.filterNot { it.id == id })
+            current.copy(todos = UserContentOperations.deleteTodo(current.todos, id))
         }
     }
 
@@ -1745,42 +1309,37 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
         updateState { current ->
-            val existing = current.clipboardHistory.find { it.text == trimmed }
-            val updatedList = if (existing != null) {
-                val refreshed = existing.copy(timestamp = System.currentTimeMillis())
-                listOf(refreshed) + current.clipboardHistory.filterNot { it.id == existing.id }
-            } else {
-                val newRecord = ClipboardRecord(text = trimmed)
-                (listOf(newRecord) + current.clipboardHistory).take(25)
-            }
-            val sorted = updatedList.sortedWith(
-                compareByDescending<ClipboardRecord> { it.pinned }.thenByDescending { it.timestamp }
-            )
-            current.copy(clipboardHistory = sorted)
+            current.copy(clipboardHistory = UserContentOperations.recordClipboard(
+                current.clipboardHistory, trimmed,
+                refreshTimestamp = System::currentTimeMillis,
+                createRecord = { ClipboardRecord(text = it) }
+            ))
         }
     }
 
     fun togglePinClipboard(id: String) {
         updateState { current ->
-            val updated = current.clipboardHistory.map {
-                if (it.id == id) it.copy(pinned = !it.pinned) else it
-            }.sortedWith(
-                compareByDescending<ClipboardRecord> { it.pinned }.thenByDescending { it.timestamp }
-            )
-            current.copy(clipboardHistory = updated)
+            current.copy(clipboardHistory = UserContentOperations.togglePinClipboard(current.clipboardHistory, id))
         }
     }
 
     fun deleteClipboardRecord(id: String) {
         updateState { current ->
-            current.copy(clipboardHistory = current.clipboardHistory.filterNot { it.id == id })
+            current.copy(clipboardHistory = UserContentOperations.deleteClipboard(current.clipboardHistory, id))
         }
     }
 
-    fun clearUnpinnedClipboard() {
-        updateState { current ->
-            current.copy(clipboardHistory = current.clipboardHistory.filter { it.pinned })
+    fun clearUnpinnedClipboard() { tryClearUnpinnedClipboard() }
+
+    @Synchronized
+    internal fun tryClearUnpinnedClipboard(expectedIds: Set<String>? = null): ClipboardClearResult {
+        if (expectedIds != null && (expectedIds.isEmpty() ||
+                _state.value.clipboardHistory.filterNot { it.pinned }.map { it.id }.toSet() != expectedIds))
+            return ClipboardClearResult.SELECTION_CHANGED
+        val accepted = updateState { current ->
+            current.copy(clipboardHistory = UserContentOperations.clearUnpinnedClipboard(current.clipboardHistory))
         }
+        return if (accepted) ClipboardClearResult.ACCEPTED else ClipboardClearResult.SAVE_REJECTED
     }
 
     // --- 兼容旧版卡片操作 ---
@@ -1800,64 +1359,15 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
     }
 
     fun moveCard(cardId: String, moveUp: Boolean) {
-        updateState { current ->
-            if (current.advancedConfig.layoutLocked) return@updateState current
-            val sorted = current.cards.sortedBy { it.order }.toMutableList()
-            val idx = sorted.indexOfFirst { it.id == cardId }
-            if (idx == -1) return@updateState current
-            val targetIdx = if (moveUp) idx - 1 else idx + 1
-            if (targetIdx !in sorted.indices) return@updateState current
-            val temp = sorted[idx]
-            sorted[idx] = sorted[targetIdx]
-            sorted[targetIdx] = temp
-            val reindexed = sorted.mapIndexed { index, card -> card.copy(order = index) }
-            current.copy(cards = reindexed)
-        }
+        updateState { current -> RepositoryStateOperations.moveLegacyCard(current, cardId, moveUp) }
     }
 
     fun removeCard(cardId: String) {
-        updateState { current ->
-            if (current.advancedConfig.layoutLocked) return@updateState current
-            val target = current.cards.find { it.id == cardId }
-            val updatedWidgets = if (target?.widgetId != null) {
-                current.boundWidgets.filterNot { it.appWidgetId == target.widgetId }
-            } else {
-                current.boundWidgets
-            }
-            val remaining = current.cards
-                .filterNot { it.id == cardId }
-                .sortedBy { it.order }
-                .mapIndexed { idx, card -> card.copy(order = idx) }
-            current.copy(cards = remaining, boundWidgets = updatedWidgets)
-        }
+        updateState { current -> RepositoryStateOperations.removeLegacyCard(current, cardId) }
     }
 
     fun updateCustomImageCard(uriString: String?, heightDp: Int = 200) {
-        updateState { current ->
-            if (current.advancedConfig.layoutLocked) return@updateState current
-            val hasImageCard = current.cards.any { it.type == CardType.CUSTOM_IMAGE }
-            val updatedCards = if (hasImageCard) {
-                current.cards.map {
-                    if (it.type == CardType.CUSTOM_IMAGE) {
-                        it.copy(
-                            enabled = uriString != null,
-                            customImageUri = uriString,
-                            customImageHeightDp = heightDp
-                        )
-                    } else it
-                }
-            } else {
-                current.cards + CardConfig(
-                    id = "card_custom_image",
-                    type = CardType.CUSTOM_IMAGE,
-                    enabled = uriString != null,
-                    order = current.cards.size,
-                    customImageUri = uriString,
-                    customImageHeightDp = heightDp
-                )
-            }
-            current.copy(cards = updatedCards)
-        }
+        updateState { current -> RepositoryStateOperations.updateLegacyCustomImageCard(current, uriString, heightDp) }
     }
 
     fun resetToDefaults() {
@@ -1868,7 +1378,6 @@ class MinusOneRepository internal constructor(private val prefs: SharedPreferenc
 
     companion object {
         private const val PREFS_NAME = "global_minus_one_prefs"
-        private const val KEY_STATE_JSON = "state_json_v5"
 
         @Volatile
         private var INSTANCE: MinusOneRepository? = null

@@ -48,6 +48,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.example.globalminusone.ui.AppIcons as Icons
@@ -116,13 +117,33 @@ import com.example.globalminusone.service.OverlayService
 @Composable
 internal fun ThemeSettingsScreen(
     repository: MinusOneRepository,
+    initialExpandedGroup: String = "",
+    jumpNonce: Long = 0L,
     onBack: () -> Unit
 ) {
     val state by repository.state.collectAsState()
     val themeConfig = state.themeConfig
     var showAnimationDialog by remember { mutableStateOf(false) }
 
-    var expandedGroup by rememberSaveable { mutableStateOf("") }
+    var expandedGroup by rememberSaveable { mutableStateOf(initialExpandedGroup) }
+    val listState = rememberLazyListState()
+    LaunchedEffect(initialExpandedGroup, jumpNonce) {
+        if (initialExpandedGroup.isNotBlank()) {
+            expandedGroup = initialExpandedGroup
+            val idx = when (initialExpandedGroup) {
+                "设置页面配色" -> 1
+                "亮色 / 暗色模式与一键预设" -> 2
+                "背景遮罩" -> 3
+                "面板底框" -> 4
+                "面板尺寸与位置" -> 5
+                "卡片外观与透明度 (长按单个卡片可独立微调)" -> 6
+                "文字与标题颜色及不透明度" -> 7
+                "动画与其它" -> 8
+                else -> null
+            }
+            if (idx != null) listState.animateScrollToItem(idx)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -132,6 +153,7 @@ internal fun ThemeSettingsScreen(
         SubPageTopBar(title = "主题外观", onBack = onBack)
 
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background),
@@ -592,9 +614,9 @@ internal fun ThemeSettingsScreen(
                 item {
                     PreferenceSliderItem(
                         title = "动画时间",
-                        value = themeConfig.animationDurationMs.toFloat(),
-                        valueRange = 100f..800f,
-                        valueText = "${themeConfig.animationDurationMs}ms",
+                        value = themeConfig.animationDurationMs.coerceIn(0, 800).toFloat(),
+                        valueRange = 0f..800f,
+                        valueText = if (themeConfig.animationDurationMs <= 0) "0ms (无动画)" else "${themeConfig.animationDurationMs}ms",
                         onValueChange = { ms ->
                             repository.updateThemeConfig { it.copy(animationDurationMs = ms.toInt()) }
                         }

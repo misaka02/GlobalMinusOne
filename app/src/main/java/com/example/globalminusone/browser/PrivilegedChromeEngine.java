@@ -52,6 +52,11 @@ public final class PrivilegedChromeEngine {
     private final Set<Integer> preexistingTaskIds = new HashSet<>();
     private final EmbeddedOwnedTasks ownedTasks = new EmbeddedOwnedTasks();
     private ChromeTaskAnchor taskAnchor;
+    private EmbeddedTaskCloseState closingTasks;
+    private final java.util.List<EmbeddedTaskCloseState.Result> unconfirmedCloses = new java.util.ArrayList<>();
+    private static final int MAX_UNCONFIRMED_CLOSES = 16;
+    private static final String TASK_CLEANUP_PENDING = "本次窗口任务/最近任务回收尚未确认；已保留会话归属记录";
+    private long truncatedUnconfirmedCloses;
     private final EmbeddedExternalOverlayMonitor externalOverlays = new EmbeddedExternalOverlayMonitor();
     private int targetUid = -1;
     public PrivilegedChromeEngine(Context context, boolean privileged) {
@@ -113,6 +118,7 @@ public final class PrivilegedChromeEngine {
         if (launchGate.isOpening()) throw new IllegalStateException("Window launch is already in progress");
         close();
         if (taskAnchor != null) throw new IllegalStateException("上次根任务回收尚未确认；未再次启动应用");
+        closingTasks = null;
         long attempt = launchGate.begin();
         this.chromePackage = pkg; this.width = width; this.height = height; this.canvasDensity = density;
         this.chromeRoute = CHROME.contains(pkg);
@@ -290,34 +296,119 @@ public final class PrivilegedChromeEngine {
     }
     private void removeOwnedTasks() {
         if (!privileged || launchSession == null) return;
-        try {
-            Context context = displayContext();
-            Class<?> manager = Class.forName(Build.VERSION.SDK_INT >= 29 ? "android.app.ActivityTaskManager" : "android.app.ActivityManager");
-            Object service = manager.getMethod("getService").invoke(null);
-            Method remove = service.getClass().getMethod("removeTask", int.class);
-            remove.setAccessible(true);
-            try { if (taskAnchor != null) for (ActivityManager.RunningTaskInfo task : taskAnchor.children()) {
-                ownedTasks.observe(EmbeddedTaskInfo.taskId(task), preexistingTaskIds.contains(EmbeddedTaskInfo.taskId(task)), true, false);
-            } } catch (Exception ignored) { /* Root may already be gone; retain recorded IDs. */ }
-            try { for (ActivityManager.RunningTaskInfo task : ((ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE)).getRunningTasks(128)) {
-                if (ChromeTaskOwnership.belongsToSession(launchSession,
-                        EmbeddedTaskInfo.baseIntent(task) == null ? null : EmbeddedTaskInfo.baseIntent(task).getStringExtra(SESSION_EXTRA), preexistingTaskIds.contains(EmbeddedTaskInfo.taskId(task)),
-                        chromePackage, task.baseActivity == null ? null : task.baseActivity.getPackageName()))
-                    ownedTasks.observe(EmbeddedTaskInfo.taskId(task), preexistingTaskIds.contains(EmbeddedTaskInfo.taskId(task)), false, true);
-            } } catch (Exception ignored) { /* A failed snapshot must not skip known-owned cleanup. */ }
-            // removeTask also removes a finished task's Recents entry. Delete these
-            // known-owned children BEFORE deleting the root (which loses membership).
-            Exception removalFailure = null;
-            for (int id : ownedTasks.snapshot()) if (!preexistingTaskIds.contains(id)) {
+        if (closingTasks == null) closingTasks = new EmbeddedTaskCloseState(
+                launchSession, chromePackage, preexistingTaskIds, ownedTasks.snapshot());
+        EmbeddedTaskCloseState.Result result = closingTasks.verify(new EmbeddedTaskCloseState.Port() {
+            private Object service;
+            @Override public EmbeddedTaskCloseState.Snapshot snapshot() throws Exception {
+                java.util.Map<Integer, EmbeddedTaskCloseState.Evidence> tasks = new java.util.HashMap<>();
+                boolean complete = true;
+                Context context = displayContext();
+                Class<?> manager = Class.forName(Build.VERSION.SDK_INT >= 29
+                        ? "android.app.ActivityTaskManager" : "android.app.ActivityManager");
+                service = manager.getMethod("getService").invoke(null);
                 try {
-                    if (!Boolean.TRUE.equals(remove.invoke(service, id)))
-                        lastError = "任务 " + id + " 已结束或系统未确认移除；未确认其最近任务条目状态";
-                } catch (Exception failure) { removalFailure = failure; }
+                    java.util.List<ActivityManager.RunningTaskInfo> running =
+                            ((ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE)).getRunningTasks(4096);
+                    if (running.size() >= 4096) complete = false;
+                    for (ActivityManager.RunningTaskInfo task : running)
+                        recordClosingTask(tasks, task, false);
+                } catch (Exception failure) { complete = false; }
+                try {
+                    Method recent = service.getClass().getMethod("getRecentTasks", int.class, int.class, int.class);
+                    recent.setAccessible(true);
+                    Object slice = recent.invoke(service, 4096, ActivityManager.RECENT_WITH_EXCLUDED, 0);
+                    Method getList = slice.getClass().getMethod("getList"); getList.setAccessible(true);
+                    Object items = getList.invoke(slice);
+                    if (!(items instanceof java.util.List)) throw new IllegalStateException("Unknown recent task snapshot");
+                    if (((java.util.List<?>) items).size() >= 4096) complete = false;
+                    for (Object item : (java.util.List<?>) items) {
+                        if (!(item instanceof ActivityManager.RecentTaskInfo)) {
+                            complete = false; continue;
+                        }
+                        ActivityManager.RecentTaskInfo task = (ActivityManager.RecentTaskInfo) item;
+                        int id = EmbeddedTaskInfo.taskId(task);
+                        if (!tasks.containsKey(id)) tasks.put(id, new EmbeddedTaskCloseState.Evidence(false,
+                                task.baseIntent == null ? null : task.baseIntent.getStringExtra(SESSION_EXTRA),
+                                Build.VERSION.SDK_INT >= 29 && task.baseActivity != null ? task.baseActivity.getPackageName() :
+                                        task.baseIntent != null && task.baseIntent.getComponent() != null
+                                                ? task.baseIntent.getComponent().getPackageName() : null));
+                    }
+                } catch (Exception failure) { complete = false; }
+                try {
+                    if (taskAnchor != null) for (ActivityManager.RunningTaskInfo task : taskAnchor.children())
+                        recordClosingTask(tasks, task, true);
+                } catch (Exception failure) { complete = false; }
+                return new EmbeddedTaskCloseState.Snapshot(tasks, complete);
             }
-            if (removalFailure != null) throw removalFailure;
-        } catch (Exception failure) {
-            lastError = "本次 Chrome 窗口回收失败：" + failureMessage(failure);
-        }
+            @Override public EmbeddedTaskCloseState.Evidence revalidate(int id) throws Exception {
+                if (preexistingTaskIds.contains(id)) return null;
+                try {
+                    if (taskAnchor != null) for (ActivityManager.RunningTaskInfo task : taskAnchor.children()) {
+                        if (EmbeddedTaskInfo.taskId(task) == id)
+                            return new EmbeddedTaskCloseState.Evidence(true,
+                                    EmbeddedTaskInfo.baseIntent(task) == null ? null : EmbeddedTaskInfo.baseIntent(task).getStringExtra(SESSION_EXTRA),
+                                    task.baseActivity == null ? null : task.baseActivity.getPackageName());
+                    }
+                } catch (Exception unknownRoot) { /* A fresh session marker may still prove an escaped task. */ }
+                // Only escaped/finished candidates need this bounded fallback. A truncated
+                // or failed running query cannot authorize falling back to older recents.
+                final int limit = 128;
+                try {
+                    java.util.List<ActivityManager.RunningTaskInfo> running =
+                            ((ActivityManager) displayContext().getSystemService(Context.ACTIVITY_SERVICE)).getRunningTasks(limit);
+                    if (running.size() >= limit) return null;
+                    for (ActivityManager.RunningTaskInfo task : running) {
+                        if (EmbeddedTaskInfo.taskId(task) != id) continue;
+                        if (task.getClass().getField("userId").getInt(task) != 0) return null;
+                        // The current running identity wins, including mismatched/absent
+                        // markers. Never replace it with a stale matching recent Intent.
+                        return new EmbeddedTaskCloseState.Evidence(false,
+                                EmbeddedTaskInfo.baseIntent(task) == null ? null : EmbeddedTaskInfo.baseIntent(task).getStringExtra(SESSION_EXTRA),
+                                task.baseActivity == null ? null : task.baseActivity.getPackageName());
+                    }
+                    Method recent = service.getClass().getMethod("getRecentTasks", int.class, int.class, int.class);
+                    recent.setAccessible(true);
+                    Object slice = recent.invoke(service, limit, ActivityManager.RECENT_WITH_EXCLUDED, 0);
+                    Method getList = slice.getClass().getMethod("getList"); getList.setAccessible(true);
+                    Object items = getList.invoke(slice);
+                    if (!(items instanceof java.util.List) || ((java.util.List<?>) items).size() >= limit) return null;
+                    for (Object item : (java.util.List<?>) items) {
+                        if (!(item instanceof ActivityManager.RecentTaskInfo)) return null;
+                        ActivityManager.RecentTaskInfo task = (ActivityManager.RecentTaskInfo) item;
+                        if (EmbeddedTaskInfo.taskId(task) != id) continue;
+                        return new EmbeddedTaskCloseState.Evidence(false,
+                                task.baseIntent == null ? null : task.baseIntent.getStringExtra(SESSION_EXTRA),
+                                Build.VERSION.SDK_INT >= 29 && task.baseActivity != null ? task.baseActivity.getPackageName() :
+                                        task.baseIntent != null && task.baseIntent.getComponent() != null
+                                                ? task.baseIntent.getComponent().getPackageName() : null);
+                    }
+                } catch (Exception unknownTask) { /* No fresh identity; preserve evidence without deleting. */ }
+                return null;
+            }
+            @Override public boolean remove(int id) throws Exception {
+                Method remove = service.getClass().getMethod("removeTask", int.class);
+                remove.setAccessible(true);
+                return Boolean.TRUE.equals(remove.invoke(service, id));
+            }
+        });
+        if (!result.confirmed() && (lastError.isEmpty() || TASK_CLEANUP_PENDING.equals(lastError)))
+            lastError = TASK_CLEANUP_PENDING;
+        else if (TASK_CLEANUP_PENDING.equals(lastError)) lastError = "";
+    }
+    private void recordClosingTask(java.util.Map<Integer, EmbeddedTaskCloseState.Evidence> tasks,
+                                   ActivityManager.RunningTaskInfo task, boolean currentRoot) {
+        tasks.put(EmbeddedTaskInfo.taskId(task), new EmbeddedTaskCloseState.Evidence(currentRoot,
+                EmbeddedTaskInfo.baseIntent(task) == null ? null : EmbeddedTaskInfo.baseIntent(task).getStringExtra(SESSION_EXTRA),
+                task.baseActivity == null ? null : task.baseActivity.getPackageName()));
+    }
+    /** Immutable evidence survives display release and subsequent independent launches. */
+    public synchronized java.util.List<EmbeddedTaskCloseState.Result> unconfirmedTaskCloses() {
+        return java.util.Collections.unmodifiableList(new java.util.ArrayList<>(unconfirmedCloses));
+    }
+    public synchronized long truncatedUnconfirmedTaskCloses() { return truncatedUnconfirmedCloses; }
+    public synchronized EmbeddedTaskCloseState.Result closeResult() {
+        return closingTasks == null ? null : closingTasks.result();
     }
     private void startFromAuthorizedProcess(Intent intent, android.os.Bundle options) throws Exception {
         // A UserService is not an ActivityManager-managed app process. Supplying its
@@ -557,7 +648,9 @@ public final class PrivilegedChromeEngine {
             }
         }
         lastContact = SystemClock.elapsedRealtime();
-        return virtualDisplay == null ? "closed" + (lastError.isEmpty() ? "" : ": " + lastError) :
+        return virtualDisplay == null ? "closed" + (lastError.isEmpty() ? "" : ": " + lastError) +
+                (unconfirmedCloses.isEmpty() && truncatedUnconfirmedCloses == 0 ? "" :
+                        "; cleanup_unconfirmed=" + unconfirmedCloses.size() + "; cleanup_history_truncated=" + truncatedUnconfirmedCloses) :
                 "display=" + virtualDisplay.getDisplay().getDisplayId() + "; uid=" + Process.myUid() + "; package=" + chromePackage + "; size=" + width + "x" + height;
     }
     /** Permanently prevent a late Binder OPEN from reviving a retired session. */
@@ -574,8 +667,7 @@ public final class PrivilegedChromeEngine {
         }
         VirtualDisplay ownedDisplay = virtualDisplay; virtualDisplay = null;
         Surface ownedSurface = surface; surface = null;
-        preexistingTaskIds.clear(); ownedTasks.clear(); taskPresence.reset(); launchSession = null;
-        chromePackage = null;
+        taskPresence.reset();
         appComponent = null;
         chromeNativeHome = false;
         try { if (ownedDisplay != null) ownedDisplay.release(); }
@@ -592,6 +684,23 @@ public final class PrivilegedChromeEngine {
             ChromeParkingSurface parked = parkingSurface; parkingSurface = null;
             try { if (parked != null) parked.close(); }
             catch (Exception failure) { lastError = "应用隐藏输出释放未确认：" + failureMessage(failure); }
+            // Re-read running and retained recent tasks after destroy-on-removal.
+            // Reused IDs require fresh ownership proof before another remove.
+            removeOwnedTasks();
+            if (closingTasks != null && !closingTasks.result().confirmed()) {
+                EmbeddedTaskCloseState.Result result = closingTasks.result();
+                boolean recorded = false;
+                for (EmbeddedTaskCloseState.Result old : unconfirmedCloses)
+                    if (old.session.equals(result.session)) { recorded = true; break; }
+                if (!recorded) {
+                    if (unconfirmedCloses.size() == MAX_UNCONFIRMED_CLOSES) {
+                        // Diagnostic eviction does not confirm removal or authorize later retries.
+                        unconfirmedCloses.remove(0); truncatedUnconfirmedCloses++;
+                    }
+                    unconfirmedCloses.add(result);
+                }
+            }
+            preexistingTaskIds.clear(); ownedTasks.clear(); launchSession = null; chromePackage = null;
         }
     }
     static String failureMessage(Throwable error) {

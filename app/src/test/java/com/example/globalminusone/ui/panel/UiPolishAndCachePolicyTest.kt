@@ -1,5 +1,6 @@
 package com.example.globalminusone.ui.panel
 
+import androidx.compose.ui.graphics.CompositingStrategy
 import com.example.globalminusone.MemoryPreferences
 import com.example.globalminusone.data.ComponentItem
 import com.example.globalminusone.data.ComponentType
@@ -473,5 +474,15 @@ class UiPolishAndCachePolicyTest {
         val movedAction = updatedFolder.containerActions.single { it.id == "act-1" }
         assertEquals(3, movedAction.gridCol)
         assertEquals(2, movedAction.gridRow)
+    }
+
+    @Test
+    fun translationTransitionKeepsFullAlphaAndAvoidsOffscreenStrategy() {
+        for (offset in listOf(-1f, -0.5f, 0f, 0.5f, 1f)) {
+            val spec = computePageTransitionSpec(PageTransition.TRANSLATION, offset, 1080f, 1920f, 3f)
+            assertEquals(1f, spec.alpha, 0.0001f)
+        }
+        assertEquals(CompositingStrategy.Auto, resolveTransitionCompositingStrategy(1f))
+        assertEquals(CompositingStrategy.ModulateAlpha, resolveTransitionCompositingStrategy(0.5f))
     }
 }

@@ -7,6 +7,9 @@ import kotlin.math.roundToInt
 internal const val CARD_IMAGE_MAX_ENCODED_BYTES = 32 * 1024 * 1024
 internal const val CARD_IMAGE_MAX_EDGE = 1440
 
+internal fun cardImageCacheKey(rawUri: String, maxEdge: Int, revision: Long): String =
+    "$revision|$maxEdge|${rawUri.trim()}"
+
 /** Cap decoded allocation without enlarging small images or changing their aspect ratio. */
 internal fun cardImageTargetSize(width: Int, height: Int, maxEdge: Int = CARD_IMAGE_MAX_EDGE): Pair<Int, Int> {
     require(width > 0 && height > 0 && maxEdge > 0) { "图片尺寸无效" }

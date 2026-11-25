@@ -17,6 +17,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.StateFlow
 
 private fun radioLabel(state: RadioState) = when (state) {
     RadioState.On -> "已开启"; RadioState.Off -> "已关闭"
@@ -35,11 +36,17 @@ private fun rootLabel(status: RootStatus) = when (status) {
 @Composable
 internal fun RadioControlTile(kind: RadioKind, system: SystemController, repository: MinusOneRepository,
     enabled: Boolean, onRequestClose: () -> Unit) {
-    val control = system.radios
+    RadioControlTileContent(kind, rememberRadioCardControl(system), rememberRadioAuthorizationActions(system),
+        { repository.isPanelExpanded }, enabled, onRequestClose)
+}
+
+@Composable
+internal fun RadioControlTileContent(kind: RadioKind, control: RadioCardControl, authorization: RadioAuthorizationActions,
+    expandedState: () -> StateFlow<Boolean>, enabled: Boolean, onRequestClose: () -> Unit) {
     val state by (if (kind == RadioKind.WIFI) control.wifi else control.bluetooth).collectAsState()
     val backend by control.backend.collectAsState()
-    val root by UserRootSession.status.collectAsState()
-    val expanded by repository.isPanelExpanded.collectAsState()
+    val root by authorization.rootStatus.collectAsState()
+    val expanded by expandedState().collectAsState()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var opened by remember { mutableStateOf(false) }
@@ -86,7 +93,7 @@ internal fun RadioControlTile(kind: RadioKind, system: SystemController, reposit
             Text("${radioLabel(state)} · $route")
             Text("选定方式后，点按卡片直接操作；也可在卡片属性中更换控制方式。")
             if (message.isNotBlank()) Text(message)
-            RadioControlSettings(system)
+            RadioControlSettingsContent(control, authorization)
             if (busy) { LinearProgressIndicator(); TextButton(onClick = { pending?.cancel(); pending = null; busy = false; message = "已取消本次等待" }) { Text("取消操作") } }
             TextButton(enabled = !busy, onClick = { pending = scope.launch { control.refresh(kind) } }) { Text("刷新状态") }
         } }, confirmButton = { TextButton(enabled = !busy, onClick = { opened = false }) { Text("完成") } })
@@ -95,10 +102,14 @@ internal fun RadioControlTile(kind: RadioKind, system: SystemController, reposit
 /** Explicit permission choices, shared by card properties and the first-use prompt. */
 @Composable
 internal fun RadioControlSettings(system: SystemController) {
-    val control = system.radios
+    RadioControlSettingsContent(rememberRadioCardControl(system), rememberRadioAuthorizationActions(system))
+}
+
+@Composable
+internal fun RadioControlSettingsContent(control: RadioCardControl, authorization: RadioAuthorizationActions) {
     val backend by control.backend.collectAsState()
-    val root by UserRootSession.status.collectAsState()
-    val authorizationPending by system.externalAuthorizationPending.collectAsState()
+    val root by authorization.rootStatus.collectAsState()
+    val authorizationPending by authorization.externalAuthorizationPending.collectAsState()
     var pending by remember { mutableStateOf<Job?>(null) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
@@ -114,7 +125,7 @@ internal fun RadioControlSettings(system: SystemController) {
             if (control.hasShizukuAuthorization()) message = "已复用 Shizuku 授权"
             else {
                 busy = true
-                pending = system.requestShizukuAuthorization { granted ->
+                pending = authorization.requestShizukuAuthorization { granted ->
                     busy = false
                     message = if (granted) "Shizuku 已授权，下次点按直接切换" else "Shizuku 尚未授权"
                 }
@@ -125,7 +136,7 @@ internal fun RadioControlSettings(system: SystemController) {
             if (root == RootStatus.Granted) message = "已复用 Root 会话"
             else {
                 busy = true
-                pending = system.requestRootAuthorization { result -> busy = false; message = result.reason }
+                pending = authorization.requestRootAuthorization { result -> busy = false; message = result.reason }
             }
         }) { Text(if (backend == RadioController.Backend.ROOT) "✓ Root" else "Root") }
         if (waiting) {
@@ -133,7 +144,7 @@ internal fun RadioControlSettings(system: SystemController) {
             TextButton(onClick = { pending?.cancel(); pending = null; busy = false; message = "已取消本次等待" }) { Text("取消等待") }
         }
         if (root == RootStatus.Granted) TextButton(enabled = !waiting, onClick = {
-            system.cancelRootAuthorization()
+            authorization.cancelRootAuthorization()
             control.selectBackend(RadioController.Backend.PUBLIC)
             message = "Root 会话已结束"
         }) { Text("结束 Root 会话") }

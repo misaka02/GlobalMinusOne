@@ -239,7 +239,7 @@ internal fun FileTextEditor(
                         TextButton(onClick = { backupMenu = true }, enabled = !busy,
                             modifier = Modifier.heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) { Text("备份 ▾") }
                         DropdownMenu(expanded = backupMenu, onDismissRequest = { backupMenu = false }) {
-                            com.example.globalminusone.service.Android12WindowKeyGuard()
+                            com.example.globalminusone.ui.Android12WindowKeyGuard()
 
                             DropdownMenuItem(text = { Text("分享原文备份") }, onClick = {
                                 backupMenu = false

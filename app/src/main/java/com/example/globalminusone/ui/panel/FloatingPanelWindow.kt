@@ -25,7 +25,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -39,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.layout.layout
@@ -59,9 +60,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.style.TextOverflow
 import com.example.globalminusone.ui.AppIcons as Icons
+import com.example.globalminusone.ui.motion.overlayDialogMotion
 import kotlin.math.roundToInt
 
-internal val LocalFloatingWindowContentVisible = staticCompositionLocalOf { true }
+/** Shared by Compose file/browser windows and the native embedded-app window frame. */
+internal const val FLOATING_WINDOW_CORNER_DP = 14
+internal const val FLOATING_WINDOW_BORDER_DP = 1
+
+internal val LocalFloatingWindowContentVisible = compositionLocalOf { true }
 
 /** Shared screen workspace window; the caller provides full-overlay constraints and persistence. */
 @Composable
@@ -93,6 +99,7 @@ internal fun FloatingPanelWindow(
         onDispose { visibilityChanged(false) }
     }
     var activelyManipulating by remember { mutableStateOf(false) }
+    var dragTranslation by remember(windowId) { mutableStateOf(Offset.Zero) }
     val commitGeometry by rememberUpdatedState(onGeometryCommitted)
     LaunchedEffect(initialWidthFraction, initialHeightFraction, initialXFraction, initialYFraction) {
         if (!activelyManipulating) {
@@ -153,8 +160,9 @@ internal fun FloatingPanelWindow(
                 yFraction.coerceIn(0f, (1f - savedVisibleHeight).coerceAtLeast(0f)))
         }
         Column(
-            Modifier.offset { IntOffset(x.roundToInt(), y.roundToInt()) }
+            Modifier.offset { IntOffset((x + dragTranslation.x).roundToInt(), (y + dragTranslation.y).roundToInt()) }
                 .width(with(density) { width.toDp() }).height(with(density) { height.toDp() })
+                .overlayDialogMotion(minScale = 0.94f)
                 .clip(RoundedCornerShape(FLOATING_WINDOW_CORNER_DP.dp))
                 .background(palette.cardBackground)
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
@@ -171,6 +179,7 @@ internal fun FloatingPanelWindow(
                         if (imeBottom > 0) return@pointerInput
                         var original: FloatArray? = null
                         fun restoreGeometry() {
+                            dragTranslation = Offset.Zero
                             original?.let {
                                 widthFraction = it[0]; heightFraction = it[1]
                                 xFraction = it[2]; yFraction = it[3]
@@ -181,9 +190,15 @@ internal fun FloatingPanelWindow(
                         detectDragGestures(
                             onDragStart = {
                                 activelyManipulating = true
+                                dragTranslation = Offset.Zero
                                 original = floatArrayOf(widthFraction, heightFraction, xFraction, yFraction)
                             },
                             onDragEnd = {
+                                val currentWidth = (widthFraction * availableWidth).coerceIn(minWidth, availableWidth)
+                                val currentHeight = if (contentVisible) (heightFraction * availableHeight).coerceIn(minHeight, availableHeight) else titleHeight.coerceAtMost(availableHeight)
+                                xFraction = ((xFraction * availableWidth + dragTranslation.x).coerceIn(0f, availableWidth - currentWidth)) / availableWidth
+                                yFraction = ((yFraction * availableHeight + dragTranslation.y).coerceIn(0f, availableHeight - currentHeight)) / availableHeight
+                                dragTranslation = Offset.Zero
                                 activelyManipulating = false
                                 saveGeometry()
                                 original = null
@@ -196,10 +211,11 @@ internal fun FloatingPanelWindow(
                             change.consume()
                             val currentWidth = (widthFraction * availableWidth).coerceIn(minWidth, availableWidth)
                             val currentHeight = if (contentVisible) (heightFraction * availableHeight).coerceIn(minHeight, availableHeight) else titleHeight.coerceAtMost(availableHeight)
-                            xFraction = ((xFraction * availableWidth).coerceIn(0f, availableWidth - currentWidth) + amount.x)
-                                .coerceIn(0f, availableWidth - currentWidth) / availableWidth
-                            yFraction = ((yFraction * availableHeight).coerceIn(0f, availableHeight - currentHeight) + amount.y)
-                                .coerceIn(0f, availableHeight - currentHeight) / availableHeight
+                            val baseX = (xFraction * availableWidth).coerceIn(0f, availableWidth - currentWidth)
+                            val baseY = (yFraction * availableHeight).coerceIn(0f, availableHeight - currentHeight)
+                            val nextX = (baseX + dragTranslation.x + amount.x).coerceIn(0f, availableWidth - currentWidth)
+                            val nextY = (baseY + dragTranslation.y + amount.y).coerceIn(0f, availableHeight - currentHeight)
+                            dragTranslation = Offset(nextX - baseX, nextY - baseY)
                         }
                         } finally {
                             // A pointerInput restart (including IME changes) can cancel

@@ -15,7 +15,6 @@ import com.example.globalminusone.FileAccessActivity
 import com.example.globalminusone.data.FileBrowserPolicy
 import com.example.globalminusone.data.FileBrowserRoot
 import com.example.globalminusone.data.FileBrowserSortOrder
-import com.example.globalminusone.service.OverlayService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -133,7 +132,7 @@ object PanelFileBrowser {
     fun completeAccess(context: Context, message: String, returnToBrowser: Boolean = true) {
         _events.value = Event(sequence.incrementAndGet(), message)
         _returnToBrowser.value = returnToBrowser
-        OverlayService.start(context, OverlayService.ACTION_OPEN_PANEL)
+        context.panelVisibilityRequests().open(context)
     }
 
     fun requestDirectory(context: Context, replaceUri: String? = null) = launchAccess(
@@ -525,14 +524,14 @@ class FileBrowserIo(context: Context) {
             }
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
             withContext(Dispatchers.Main) {
-                OverlayService.start(appContext, OverlayService.ACTION_CLOSE_PANEL)
+                appContext.panelVisibilityRequests().close(appContext)
                 appContext.startActivity(intent)
             }
             null
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            withContext(Dispatchers.Main) { OverlayService.start(appContext, OverlayService.ACTION_OPEN_PANEL) }
+            withContext(Dispatchers.Main) { appContext.panelVisibilityRequests().open(appContext) }
             if (e is android.content.ActivityNotFoundException) "没有可打开此文件的应用" else e.message ?: "无法打开文件"
         }
     }

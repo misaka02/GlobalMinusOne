@@ -2,8 +2,7 @@ package com.example.globalminusone.ui.panel
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
+import com.example.globalminusone.ui.motion.MotionTokens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -41,7 +40,7 @@ internal fun EditableLinearPage(page: PageConfig, pageIndex: Int, state: GlobalM
     val palette = LocalPanelPalette.current
     val density = LocalDensity.current
     val ownership = LocalPanelGestureOwnership.current
-    val expansion = compactCurtainFractions()
+    val expansion = compactCurtainFractions(page.components)
     val memory = LocalPageViewport.current ?: remember(page.id) { PageViewportMemory() }
     val recordingRevision = remember(page.id) { memory.restoreRevision }
     val pageActive = LocalPageViewportActive.current
@@ -77,16 +76,12 @@ internal fun EditableLinearPage(page: PageConfig, pageIndex: Int, state: GlobalM
                 saveSize(if (width) value else selected.w, if (width) selected.h else value, !width)
             }) { numberField = null }
     }
-    deleting?.let { item -> PanelAlertDialog(onDismissRequest = { deleting = null },
-        title = { Text("删除卡片？") }, text = { Text("将删除“${item.title}”${if (item.type.isContainerType()) "及其中的全部子卡片" else ""}。此操作无法恢复。") },
-        confirmButton = { TextButton(onClick = {
-            val current = repository.state.value
-            val targetPage = current.pages.indexOfFirst { it.id == page.id }
-            if (!current.advancedConfig.layoutLocked && targetPage >= 0 && current.pages[targetPage].components.findComponent(item.id) != null)
-                repository.removeComponent(targetPage, item.id)
-            deleting = null
-        }) { Text("删除", color = MaterialTheme.colorScheme.error) } },
-        dismissButton = { TextButton(onClick = { deleting = null }) { Text("取消") } }) }
+    deleting?.let { item ->
+        CardDestructiveConfirmation(
+            CardDestructiveRequest(page.id, item.id, item.title, CardDestructiveAction.DELETE),
+            repository
+        ) { deleting = null }
+    }
     DisposableEffect(page.id) { onDispose { viewport.end() } }
     LaunchedEffect(pageActive) {
         if (!pageActive) {
@@ -131,14 +126,16 @@ internal fun EditableLinearPage(page: PageConfig, pageIndex: Int, state: GlobalM
                 TextButton(onClick = { menu = true }, enabled = selected != null, modifier = Modifier.heightIn(min = 36.dp), contentPadding = PaddingValues(horizontal = 5.dp)) {
                     Text("操作 ▾", fontSize = 11.sp, maxLines = 1)
                 }
-                DropdownMenu(menu, { menu = false }) {
-                    com.example.globalminusone.service.Android12WindowKeyGuard()
-                     selected?.let { item ->
-                    DropdownMenuItem({ Text("卡片属性") }, { menu = false; onProperties(item) })
-                    DropdownMenuItem({ Text("上移") }, { menu = false; repository.moveComponentOrderInLinearPage(pageIndex, item.id, true) })
-                    DropdownMenuItem({ Text("下移") }, { menu = false; repository.moveComponentOrderInLinearPage(pageIndex, item.id, false) })
-                    DropdownMenuItem({ Text("删除…", color = MaterialTheme.colorScheme.error) }, { menu = false; deleting = item })
-                } }
+                PanelDropdownMenu(menu, { menu = false }) {
+                    com.example.globalminusone.ui.Android12WindowKeyGuard()
+                    val menuPalette = checkNotNull(LocalPanelMenuPalette.current)
+                    selected?.let { item ->
+                        PanelMenuItem({ Text("卡片属性") }) { menu = false; onProperties(item) }
+                        PanelMenuItem({ Text("上移") }) { menu = false; repository.moveComponentOrderInLinearPage(pageIndex, item.id, true) }
+                        PanelMenuItem({ Text("下移") }) { menu = false; repository.moveComponentOrderInLinearPage(pageIndex, item.id, false) }
+                        PanelMenuItem({ Text("删除…", color = menuPalette.danger) }) { menu = false; deleting = item }
+                    }
+                }
             }
             TextButton(
                 onClick = { repository.selectComponent(null) },
@@ -207,8 +204,11 @@ internal fun EditableLinearPage(page: PageConfig, pageIndex: Int, state: GlobalM
             }
             val dragY = origin + ((viewport.pointer?.y ?: pointerOrigin) - pointerOrigin) + viewport.consumedScroll - scrollOrigin
             val toolsInset = if (selected != null) with(density) { 72.dp.toPx() } else 0f
-            val extent = maxOf(end + toolsInset, if (moving != null) dragY + (heights[moving] ?: sy) + gap + toolsInset else 0f,
-                scroll.value + constraints.maxHeight.toFloat())
+            val baseExtent = maxOf(end + toolsInset, if (moving != null) dragY + (heights[moving] ?: sy) + gap + toolsInset else 0f)
+            val viewportMaxHeightPx = constraints.maxHeight.toFloat()
+            val extent by remember(scroll, baseExtent, viewportMaxHeightPx) {
+                derivedStateOf { maxOf(baseExtent, scroll.value + viewportMaxHeightPx) }
+            }
             Box(Modifier.fillMaxSize().onGloballyPositioned {
                 viewport.bounds = it.boundsInRoot()
                 viewportHeightPx = it.size.height
@@ -222,9 +222,7 @@ internal fun EditableLinearPage(page: PageConfig, pageIndex: Int, state: GlobalM
                         val animMs = state.themeConfig.animationDurationMs
                         val position by animateFloatAsState(
                             targetY,
-                            if (dragging || animMs <= 0) snap()
-                            else if (animMs != 240) tween(animMs.coerceIn(60, 800))
-                            else spring(dampingRatio = .95f, stiffness = 1100f),
+                            if (dragging || animMs <= 0) snap() else MotionTokens.cardSettleSpring(animMs),
                             label = "linear-position"
                         )
                         val w = (if (selected?.id == item.id) sizePreview?.first ?: item.w else item.w).coerceIn(1, columns)

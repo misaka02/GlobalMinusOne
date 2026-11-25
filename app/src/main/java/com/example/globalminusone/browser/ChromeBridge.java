@@ -14,27 +14,13 @@ public final class ChromeBridge {
     private static final int OPEN = IBinder.FIRST_CALL_TRANSACTION;
     private static final int RESIZE = OPEN + 1, TOUCH = OPEN + 2, BACK = OPEN + 3,
             NAVIGATE = OPEN + 4, CLOSE = OPEN + 5, STATUS = OPEN + 6, COMMAND = OPEN + 7,
-            NEW_SESSION = OPEN + 8, OPEN_APP = OPEN + 9, OUTPUT_SURFACE = OPEN + 10, SPLIT = OPEN + 11;
+            NEW_SESSION = OPEN + 8, OPEN_APP = OPEN + 9, OUTPUT_SURFACE = OPEN + 10;
 
     public static final class Client {
         private final IBinder binder;
         private IBinder lifetime;
         public Client(IBinder binder) { this.binder = binder; }
         public IBinder binder() { return binder; }
-        public com.example.globalminusone.split.SplitSystemResult split(com.example.globalminusone.split.SplitSystemRequest request) throws RemoteException {
-            Parcel input = Parcel.obtain(), output = Parcel.obtain();
-            try {
-                input.writeInterfaceToken(DESCRIPTOR);
-                input.writeInt(com.example.globalminusone.split.SplitSystemProtocol.op(request));
-                input.writeInt(com.example.globalminusone.split.SplitSystemProtocol.taskId(request));
-                input.writeString(com.example.globalminusone.split.SplitSystemProtocol.component(request));
-                input.writeInt(com.example.globalminusone.split.SplitSystemProtocol.userId(request));
-                if (!binder.transact(SPLIT, input, output, 0)) throw new RemoteException("Typed split protocol unavailable");
-                output.readException();
-                Integer exit = output.readInt() != 0 ? output.readInt() : null;
-                return new com.example.globalminusone.split.SplitSystemResult(exit, output.readString(), output.readString());
-            } finally { input.recycle(); output.recycle(); }
-        }
         public Client newSession() throws RemoteException {
             Parcel input = Parcel.obtain(), output = Parcel.obtain();
             IBinder life = new Binder();
@@ -146,16 +132,6 @@ public final class ChromeBridge {
             try {
                 if (retired) throw new IllegalStateException("Window session has ended");
                 switch (code) {
-                    case SPLIT: {
-                        if (!privileged || parent != null) throw new SecurityException("Split requires the authorized factory");
-                        int operation = data.readInt(), taskId = data.readInt();
-                        String component = data.readString(); int userId = data.readInt(); noExtraData(data);
-                        com.example.globalminusone.split.SplitSystemRequest request = com.example.globalminusone.split.SplitSystemProtocol.decode(operation, taskId, component, userId);
-                        com.example.globalminusone.split.SplitSystemResult response = com.example.globalminusone.split.SplitSystemExecutor.execute(request);
-                        reply.writeNoException(); reply.writeInt(response.getExitCode() == null ? 0 : 1);
-                        if (response.getExitCode() != null) reply.writeInt(response.getExitCode());
-                        reply.writeString(response.getStdout()); reply.writeString(response.getStderr()); return true;
-                    }
                     case OUTPUT_SURFACE: {
                         Surface output = data.readTypedObject(Surface.CREATOR);
                         try (EmbeddedSurfaceInput<Surface> input = new EmbeddedSurfaceInput<>(output, Surface::release)) {

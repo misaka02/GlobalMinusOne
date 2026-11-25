@@ -53,14 +53,14 @@ import kotlinx.coroutines.flow.map
 internal val LocalAppAppearanceOverrides = compositionLocalOf<Map<String, AppAppearanceOverride>?> { null }
 
 @Composable
-internal fun rememberAppAppearanceOverrides(repository: MinusOneRepository?): Map<String, AppAppearanceOverride> {
+internal fun rememberAppAppearanceOverrides(actions: AppCardMenuActions?): Map<String, AppAppearanceOverride> {
     LocalAppAppearanceOverrides.current?.let { return it }
-    if (repository == null) return emptyMap()
-    val overrides = remember(repository) {
-        repository.state.map { it.appAppearanceOverrides }.distinctUntilChanged()
+    if (actions == null) return emptyMap()
+    val overrides = remember(actions) {
+        actions.appearanceOverrides
     }
     // Only seed the collection once; the mapped StateFlow supplies all live updates.
-    val initial = remember(repository) { repository.state.value.appAppearanceOverrides }
+    val initial = remember(actions) { actions.currentAppearanceOverrides }
     return overrides.collectAsState(initial = initial).value
 }
 
@@ -98,7 +98,7 @@ fun AppIconComponent(
         if (effectivePkg.isNotBlank() && (appInfo == null || cachedAppBitmap == null) &&
             !AppAndIntentLauncher.isKnownMissingPackage(effectivePkg)
         ) {
-            val loaded = AppAndIntentLauncher.getAppInfoCached(context, effectivePkg)
+            val loaded = AppAndIntentLauncher.getAppInfoCached(context, effectivePkg, notify = false)
             fetchedAppInfo = loaded
             fetchedBitmap = AppAndIntentLauncher.peekAppIconBitmap(effectivePkg)
         }
@@ -106,7 +106,7 @@ fun AppIconComponent(
     val appearanceOverrides = when {
         drawerAppearanceOverrides != null -> drawerAppearanceOverrides
         sourceCard != null -> emptyMap()
-        else -> rememberAppAppearanceOverrides(menuEnvironment?.repository)
+        else -> rememberAppAppearanceOverrides(menuEnvironment?.actions)
     }
     val appearance = if (sourceCard == null) appearanceOverrides[effectivePkg] ?: appearanceOverrides[packageName] else null
     val displayLabel = appearance?.displayName?.takeIf { it.isNotBlank() }
@@ -195,6 +195,7 @@ fun CustomShortcutComponent(
     item: ComponentItem,
     enabled: Boolean = !LocalIsEditMode.current,
     fallbackIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    isPopOutLauncherIcon: Boolean = false,
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
@@ -204,8 +205,8 @@ fun CustomShortcutComponent(
     val iconColor = Color(item.colorHex)
     val iconVector = fallbackIcon ?: getQuickActionIcon(item.iconName)
     val customImageBitmap = rememberUserIconBitmap(context, item.iconUri)
-    val effectivePkg = remember(item.packageName, item.intentUri, item.iconName) {
-        if (item.iconName.isBlank() || item.iconName in setOf("bolt", "apps", "star")) {
+    val effectivePkg = remember(item.packageName, item.intentUri, item.iconName, isPopOutLauncherIcon) {
+        if (!isPopOutLauncherIcon && (item.iconName.isBlank() || item.iconName in setOf("bolt", "apps", "star"))) {
             AppAndIntentLauncher.resolveEffectivePackageName(item.packageName, item.intentUri)
         } else ""
     }
@@ -226,7 +227,17 @@ fun CustomShortcutComponent(
         }
     }
 
-    AppContextMenuTarget(effectivePkg.ifBlank { item.packageName }, item.title, enabled, onClick, modifier = Modifier.fillMaxSize(), editLabel = "编辑快捷方式卡片") {
+    val menuEditLabel = if (isPopOutLauncherIcon) LocalAppEditLabel.current else "编辑快捷方式卡片"
+    val targetPkg = if (isPopOutLauncherIcon) "" else effectivePkg.ifBlank { item.packageName }
+    AppContextMenuTarget(
+        packageName = targetPkg,
+        label = item.title,
+        enabled = enabled,
+        onClick = onClick,
+        modifier = Modifier.fillMaxSize(),
+        editLabel = menuEditLabel,
+        isPopOutLauncherIcon = isPopOutLauncherIcon
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()

@@ -1,0 +1,30 @@
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="open_main_settings"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_settings_short"
+        android:shortcutLongLabel="@string/shortcut_settings_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.example.globalminusone"
+            android:targetClass="com.example.globalminusone.MainActivity">
+            <extra android:name="force_settings" android:value="true" />
+            <extra android:name="open_screen" android:value="MAIN" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="open_ocr_settings"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_ocr_short"
+        android:shortcutLongLabel="@string/shortcut_ocr_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.example.globalminusone"
+            android:targetClass="com.example.globalminusone.MainActivity">
+            <extra android:name="force_settings" android:value="true" />
+            <extra android:name="open_screen" android:value="SCREEN_ASSISTANT" />
+        </intent>
+    </shortcut>
+</shortcuts>

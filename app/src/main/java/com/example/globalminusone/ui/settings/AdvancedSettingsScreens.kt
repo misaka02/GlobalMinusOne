@@ -48,6 +48,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.example.globalminusone.ui.AppIcons as Icons
@@ -117,6 +118,8 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun AdvanceSettingsScreen(
     repository: MinusOneRepository,
+    initialExpandedGroup: String = "",
+    jumpNonce: Long = 0L,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -127,7 +130,21 @@ internal fun AdvanceSettingsScreen(
     var showIconBehaviorDialog by remember { mutableStateOf(false) }
     var showBlacklistDialog by remember { mutableStateOf(false) }
 
-    var expandedGroup by rememberSaveable { mutableStateOf("") }
+    var expandedGroup by rememberSaveable { mutableStateOf(initialExpandedGroup) }
+    val listState = rememberLazyListState()
+    LaunchedEffect(initialExpandedGroup, jumpNonce) {
+        if (initialExpandedGroup.isNotBlank()) {
+            expandedGroup = initialExpandedGroup
+            val idx = when (initialExpandedGroup) {
+                "负一屏" -> 1
+                "启动与自动收起" -> 2
+                "显示层级与网格" -> 3
+                "Root" -> 4
+                else -> null
+            }
+            if (idx != null) listState.animateScrollToItem(idx)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -137,6 +154,7 @@ internal fun AdvanceSettingsScreen(
         SubPageTopBar(title = "高级设置", onBack = onBack)
 
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background),
@@ -319,6 +337,8 @@ internal fun AdvanceSettingsScreen(
 @Composable
 internal fun ExtendSettingsScreen(
     repository: MinusOneRepository,
+    initialExpandedGroup: String = "",
+    jumpNonce: Long = 0L,
     onBack: () -> Unit
 ) {
     val state by repository.state.collectAsState()
@@ -327,7 +347,20 @@ internal fun ExtendSettingsScreen(
     var showScenarioDialog by remember { mutableStateOf(false) }
     var showEyeColorDialog by remember { mutableStateOf(false) }
 
-    var expandedGroup by rememberSaveable { mutableStateOf("") }
+    var expandedGroup by rememberSaveable { mutableStateOf(initialExpandedGroup) }
+    val listState = rememberLazyListState()
+    LaunchedEffect(initialExpandedGroup, jumpNonce) {
+        if (initialExpandedGroup.isNotBlank()) {
+            expandedGroup = initialExpandedGroup
+            val idx = when (initialExpandedGroup) {
+                "通知" -> 1
+                "其它" -> 2
+                "护眼与滤色" -> 3
+                else -> null
+            }
+            if (idx != null) listState.animateScrollToItem(idx)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -337,6 +370,7 @@ internal fun ExtendSettingsScreen(
         SubPageTopBar(title = "扩展功能", onBack = onBack)
 
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background),
@@ -462,7 +496,7 @@ internal fun AppPickerDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            com.example.globalminusone.service.Android12WindowKeyGuard()
+            com.example.globalminusone.ui.Android12WindowKeyGuard()
             Text(text = title, fontWeight = FontWeight.Bold) },
         text = {
             Column(modifier = Modifier.height(360.dp)) {
@@ -562,7 +596,7 @@ internal fun ScenarioModeManageDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            com.example.globalminusone.service.Android12WindowKeyGuard()
+            com.example.globalminusone.ui.Android12WindowKeyGuard()
             Text(if (addingRule) "新增情景规则" else "应用情景模式", fontWeight = FontWeight.Bold) },
         text = {
             if (addingRule) {
@@ -727,7 +761,7 @@ internal fun EyeProtectionColorDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            com.example.globalminusone.service.Android12WindowKeyGuard()
+            com.example.globalminusone.ui.Android12WindowKeyGuard()
             Text("选择全局护眼色", fontWeight = FontWeight.Bold) },
         text = {
             LazyColumn {

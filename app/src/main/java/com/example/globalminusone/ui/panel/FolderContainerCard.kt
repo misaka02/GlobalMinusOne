@@ -28,8 +28,10 @@ import com.example.globalminusone.data.*
 import com.example.globalminusone.system.AppAndIntentLauncher
 import com.example.globalminusone.system.SystemController
 import com.example.globalminusone.ui.AppIcons as Icons
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -45,6 +47,20 @@ internal fun FolderContainerCard(
     onMain: () -> Unit,
     nestedContent: (@Composable () -> Unit)?
 ) {
+    FolderContainerContent(item, pageIndex, state.cardLayoutSnapshot(), repository?.let { rememberCardLayoutActions(it) },
+        repository?.let { rememberCardPropertyEditors(it, system) }, repository?.let { rememberCardDestinationPicker(it) },
+        rememberLegacyContainerActions(repository, system), state.advancedConfig.eyeProtectionEnabled,
+        editing, onClosePanel, onMain, nestedContent)
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun FolderContainerContent(
+    item: ComponentItem, pageIndex: Int, state: CardLayoutSnapshot, layoutActions: CardLayoutActions?,
+    propertyEditors: CardPropertyEditors?, destinationPicker: CardDestinationPicker?, legacyActions: LegacyContainerActions,
+    eyeProtectionEnabled: Boolean, editing: Boolean, onClosePanel: () -> Unit, onMain: () -> Unit,
+    nestedContent: (@Composable () -> Unit)?
+) {
     var open by remember(item.id) { mutableStateOf(false) }
     var openRequested by remember(item.id) { mutableStateOf(false) }
     var editingInside by remember(item.id) { mutableStateOf(false) }
@@ -52,6 +68,7 @@ internal fun FolderContainerCard(
     var properties by remember(item.id) { mutableStateOf(false) }
     var propertySection by remember(item.id) { mutableStateOf("") }
     var childPropertiesId by remember(item.id) { mutableStateOf<String?>(null) }
+    var childPropertySection by remember(item.id) { mutableStateOf("") }
     var childTransferId by remember(item.id) { mutableStateOf<String?>(null) }
     var childDestructiveRequest by remember(item.id) { mutableStateOf<CardDestructiveRequest?>(null) }
     var anchorBounds by remember(item.id) { mutableStateOf(IntRect.Zero) }
@@ -73,8 +90,8 @@ internal fun FolderContainerCard(
         childTransferId = null
         childDestructiveRequest = null
         actionToEdit = null
-        val repo = repository ?: return
-        val currentState = repo.state.value
+        val repo = layoutActions ?: return
+        val currentState = repo.current
         val selectedId = currentState.selectedComponentId
         if (selectedId != null && currentState.pages.getOrNull(pageIndex)?.components?.findComponent(item.id)?.containerComponents?.findComponent(selectedId) != null) {
             repo.selectComponent(null)
@@ -83,7 +100,7 @@ internal fun FolderContainerCard(
 
     fun closeFolder() {
         menuExpanded = false
-        if (state.themeConfig.animationDurationMs <= 0) {
+        if (state.animationDurationMs <= 0) {
             forceCloseFolder()
         } else {
             openRequested = false
@@ -91,6 +108,12 @@ internal fun FolderContainerCard(
     }
 
     val folderReturn = LocalFolderReturnState.current
+    val folderInteraction = LocalFolderItemInteraction.current
+    SideEffect {
+        folderInteraction?.tap = {
+            if (!editing) openFolder()
+        }
+    }
     LaunchedEffect(folderReturn?.reopenFolderId, folderReturn?.triggerToken, item.id) {
         if (folderReturn?.consume(item.id) == true) {
             openFolder()
@@ -100,7 +123,7 @@ internal fun FolderContainerCard(
     val context = LocalContext.current
     val palette = LocalCardColors.current
     val panelPalette = LocalPanelPalette.current
-    val add = LocalAddToContainer.current
+    val add = LocalPanelActions.current.addToContainer
     val parentFolderEdit = LocalFolderEditAction.current
     val parentClosePopup = LocalCloseContainerPopup.current
     val customImageBitmap = rememberUserIconBitmap(context, item.iconUri)
@@ -109,7 +132,7 @@ internal fun FolderContainerCard(
         val uris = linkedSetOf<String>()
         collectComponentTreeIcons(listOf(item), packages, uris)
         if (packages.isNotEmpty()) AppAndIntentLauncher.pinPackages(packages)
-        val revisions = repository?.imageAccessRevisions?.value.orEmpty()
+        val revisions = layoutActions?.imageAccessRevisions.orEmpty()
         coroutineScope {
             if (uris.isNotEmpty()) launch { UserIconCache.prewarm(context, uris, revisions) }
             if (packages.isNotEmpty()) launch { AppAndIntentLauncher.prewarmPackages(context, packages) }
@@ -158,14 +181,16 @@ internal fun FolderContainerCard(
             iconHeightBudget.coerceAtLeast(1.dp))
         val cellSize = ((iconSize - 10.dp) / 2).coerceIn(1.dp, 22.dp)
         Column(
-            Modifier.fillMaxSize().combinedClickable(
-                onClick = { openFolder() },
-                onLongClick = {
-                    if (!state.advancedConfig.layoutLocked) {
-                        if (parentFolderEdit != null) parentFolderEdit() else repository?.setEditMode(true)
-                        repository?.selectComponent(item.id)
+            Modifier.fillMaxSize().then(
+                if (folderInteraction != null) Modifier else Modifier.combinedClickable(
+                    onClick = { openFolder() },
+                    onLongClick = {
+                        if (!state.layoutLocked) {
+                            if (parentFolderEdit != null) parentFolderEdit() else layoutActions?.setEditMode(true)
+                            layoutActions?.selectComponent(item.id)
+                        }
                     }
-                }
+                )
             ).then(if (gridSpacing != null) Modifier.padding(vertical = verticalPadding) else Modifier),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = if (gridSpacing != null) Arrangement.Top else Arrangement.Center
@@ -272,44 +297,45 @@ internal fun FolderContainerCard(
                 onDismiss = ::closeFolder,
                 expanded = openRequested,
                 forceFullColumns = editingInside,
+                gridColumns = state.gridColumns,
                 onDismissAnimationEnd = ::forceCloseFolder,
                 overlay = {
                     actionToEdit?.let { action ->
-                        if (repository != null) {
-                            EditContainerActionDialog(repository, pageIndex, item.id, action) { actionToEdit = null }
+                        if (layoutActions != null) {
+                            propertyEditors?.LegacyAction(pageIndex, item.id, action) { actionToEdit = null }
                         }
                     }
                     // Keep an ID, not a copied child: layout changes and deletion must follow live state.
                     val propertyId = if (properties) item.id else childPropertiesId
                     val propertyTarget = propertyId?.let { state.pages.getOrNull(pageIndex)?.components?.findComponent(it) }
-                    if (propertyTarget != null && repository != null) {
+                    if (propertyTarget != null && layoutActions != null) {
                         FolderWindowLayer {
-                            ComponentEditModal(propertyTarget, pageIndex, repository, system,
-                                initialSection = if (properties) propertySection else "") {
+                            propertyEditors?.Component(propertyTarget, pageIndex,
+                                initialSection = if (properties) propertySection else childPropertySection) {
                                 properties = false
                                 propertySection = ""
                                 childPropertiesId = null
+                                childPropertySection = ""
                             }
                         }
                     }
                     childDestructiveRequest?.let { request ->
-                        if (repository != null) {
+                        if (layoutActions != null) {
                             FolderWindowLayer {
-                                CardDestructiveConfirmation(request, repository) { childDestructiveRequest = null }
+                                CardDestructiveConfirmationContent(request, layoutActions) { childDestructiveRequest = null }
                             }
                         }
                     }
                     childTransferId?.let { targetChildId ->
-                        if (repository != null) {
+                        if (layoutActions != null) {
                             val currentPageId = state.pages.getOrNull(pageIndex)?.id.orEmpty()
                             FolderWindowLayer {
-                                ComponentDestinationDialog(
-                                    repository = repository,
+                                destinationPicker?.Show(
                                     excludedSubtreeId = targetChildId,
                                     title = "移动到",
                                     onDismiss = { childTransferId = null }
                                 ) { targetPageId, targetContainerId ->
-                                    val saved = repository.transferComponent(currentPageId, targetChildId, targetPageId, targetContainerId, copy = false)
+                                    val saved = layoutActions.transferComponent(currentPageId, targetChildId, targetPageId, targetContainerId, copy = false)
                                     if (!saved) android.widget.Toast.makeText(context, "布局已锁定或目标已失效", android.widget.Toast.LENGTH_SHORT).show()
                                     else android.widget.Toast.makeText(context, "已移动到所选位置", android.widget.Toast.LENGTH_SHORT).show()
                                     childTransferId = null
@@ -325,29 +351,29 @@ internal fun FolderContainerCard(
                 val availableCompactWidthDp = compactPanelBounds?.let { bounds ->
                     with(compactDensity) { (bounds.right - bounds.left).toDp().value }
                 } ?: screenWidthDp
-                val selectedChild = if (editingInside && !state.advancedConfig.layoutLocked) {
+                val selectedChild = if (editingInside && !state.layoutLocked) {
                     state.selectedComponentId?.let { selId -> item.containerComponents.firstOrNull { it.id == selId } }
                 } else null
                 val currentPageId = state.pages.getOrNull(pageIndex)?.id.orEmpty()
                 FolderWindowToolbar(
-                    item = item, editing = editingInside, locked = state.advancedConfig.layoutLocked,
+                    item = item, editing = editingInside, locked = state.layoutLocked,
                     menuExpanded = menuExpanded, onMenu = { menuExpanded = it },
                     onEdit = { editingInside = !editingInside },
                     onOpenSection = { section -> propertySection = section; properties = true },
-                    onAdd = if (!state.advancedConfig.layoutLocked && add != null) ({
+                    onAdd = if (!state.layoutLocked && add != null) ({
                         folderReturn?.markPending(item.id)
                         forceCloseFolder()
                         add(item.id)
                     }) else null,
-                    onCompactGrid = if (repository != null && item.containerLayout == ContainerLayoutType.GRID) ({
+                    onCompactGrid = if (layoutActions != null && item.containerLayout == ContainerLayoutType.GRID) ({
                         val compactMetrics = containerCompactTargetMetrics(
                             item = item,
                             availableWidthDp = availableCompactWidthDp,
                             editingInside = editingInside,
-                            gridColumns = state.advancedConfig.gridColumns,
-                            configuredHeightUnitDp = state.advancedConfig.heightUnitDp
+                            gridColumns = state.gridColumns,
+                            configuredHeightUnitDp = state.heightUnitDp
                         )
-                        repository.compactContainerGridPlacements(
+                        layoutActions.compactContainerGridPlacements(
                             pageIndex = pageIndex,
                             containerId = item.id,
                             widthDp = compactMetrics.widthDp,
@@ -355,8 +381,8 @@ internal fun FolderContainerCard(
                             iconColumns = compactMetrics.columns
                         )
                     }) else null,
-                    onInlineGridChange = if (repository != null && item.containerLayout == ContainerLayoutType.GRID) { col, iconSz, gap, rowGap ->
-                        repository.updateComponent(pageIndex, item.id) { comp ->
+                    onInlineGridChange = if (layoutActions != null && item.containerLayout == ContainerLayoutType.GRID) { col, iconSz, gap, rowGap ->
+                        layoutActions.updateComponent(pageIndex, item.id) { comp ->
                             comp.copy(
                                 containerColumns = col ?: comp.containerColumns,
                                 containerIconSizeDp = iconSz ?: comp.containerIconSizeDp,
@@ -367,9 +393,20 @@ internal fun FolderContainerCard(
                         }
                     } else null,
                     selectedChild = selectedChild,
-                    onOpenSelectedProperties = selectedChild?.let { sel -> { childPropertiesId = sel.id } },
-                    onMoveSelectedChild = if (repository != null && selectedChild != null) ({ childTransferId = selectedChild.id }) else null,
-                    onDeleteSelectedChild = if (repository != null && selectedChild != null) ({
+                    onOpenSelectedProperties = selectedChild?.let { sel ->
+                        {
+                            childPropertySection = ""
+                            childPropertiesId = sel.id
+                        }
+                    },
+                    onOpenSelectedGeometry = selectedChild?.let { sel ->
+                        {
+                            childPropertySection = "位置与尺寸"
+                            childPropertiesId = sel.id
+                        }
+                    },
+                    onMoveSelectedChild = if (layoutActions != null && selectedChild != null) ({ childTransferId = selectedChild.id }) else null,
+                    onDeleteSelectedChild = if (layoutActions != null && selectedChild != null) ({
                         childDestructiveRequest = CardDestructiveRequest(
                             pageId = currentPageId,
                             componentId = selectedChild.id,
@@ -381,24 +418,27 @@ internal fun FolderContainerCard(
                 )
                 }
             ) {
+                val enterFolderEdit = remember { { editingInside = true } }
+                val openChildProperties = remember { { child: ComponentItem -> childPropertiesId = child.id } }
+                val folderClosePopup = remember(parentClosePopup) { { forceCloseFolder(); parentClosePopup() } }
                 CompositionLocalProvider(
                     LocalFolderEditing provides editingInside,
                     LocalFolderIconSizeDp provides if (item.containerLayout == ContainerLayoutType.GRID) containerIconSizeDp(item) else null,
-                    LocalFolderEditAction provides { editingInside = true },
-                    LocalFolderOpenProperties provides { childPropertiesId = it.id }
+                    LocalFolderEditAction provides enterFolderEdit,
+                    LocalFolderOpenProperties provides openChildProperties
                 ) {
-                    if ((repository != null && item.containerActions.isNotEmpty()) || item.containerComponents.isNotEmpty()) {
+                    if ((layoutActions != null && item.containerActions.isNotEmpty()) || item.containerComponents.isNotEmpty()) {
                         Column(verticalArrangement = Arrangement.spacedBy(
                             if (item.containerLayout == ContainerLayoutType.GRID) containerRowGapDp(item).coerceAtLeast(0).dp else 8.dp
                         )) {
-                            if (repository != null && item.containerActions.isNotEmpty()) {
-                                LegacyContainerActionGrid(
-                                    item, pageIndex, state, repository, system,
+                            if (layoutActions != null && item.containerActions.isNotEmpty()) {
+                                LegacyContainerGridContent(
+                                    item, pageIndex, state.layoutLocked, eyeProtectionEnabled, layoutActions, legacyActions,
                                     editingInside, onClosePanel, onMain, onEdit = { actionToEdit = it }
                                 )
                             }
                             if (item.containerComponents.isNotEmpty()) {
-                                CompositionLocalProvider(LocalCloseContainerPopup provides { forceCloseFolder(); parentClosePopup() }) {
+                                CompositionLocalProvider(LocalCloseContainerPopup provides folderClosePopup) {
                                     nestedContent?.invoke()
                                 }
                             }
@@ -458,6 +498,7 @@ private fun FolderChildPreviewGlyph(entry: FolderPreviewEntry, size: androidx.co
         ComponentType.SWITCH_LOCATION -> Icons.Rounded.LocationOn
         ComponentType.SWITCH_HOTSPOT -> Icons.Rounded.WifiTethering
         ComponentType.SWITCH_NFC -> Icons.Rounded.Nfc
+        ComponentType.SWITCH_EYE_CARE -> Icons.Rounded.Visibility
         ComponentType.STAT_BATTERY_BAR, ComponentType.STAT_BATTERY_DETAIL -> Icons.Rounded.BatteryChargingFull
         ComponentType.STAT_RAM -> Icons.Rounded.Memory
         ComponentType.STAT_ROM -> Icons.Rounded.Storage
@@ -466,7 +507,17 @@ private fun FolderChildPreviewGlyph(entry: FolderPreviewEntry, size: androidx.co
         ComponentType.FILE_BROWSER, ComponentType.FILE_SHORTCUT -> Icons.Rounded.Folder
         ComponentType.ACTION_LOCK -> Icons.Rounded.Lock
         ComponentType.ACTION_SCREENSHOT -> Icons.Rounded.Screenshot
+        ComponentType.ACTION_REGION_SCREENSHOT -> Icons.Rounded.CropFree
+        ComponentType.ACTION_SCREEN_ASSISTANT -> Icons.Rounded.Translate
+        ComponentType.ACTION_BREENO_TOUCH -> Icons.Rounded.AutoAwesome
         ComponentType.ACTION_WECHAT_SCAN -> Icons.Rounded.QrCodeScanner
+        ComponentType.APP_DRAWER_CARD -> Icons.Rounded.Apps
+        ComponentType.APP_KEYBOARD_LAUNCHER -> Icons.Rounded.Keyboard
+        ComponentType.RECENT_APPS_CARD -> Icons.Rounded.History
+        ComponentType.APP_WIDGET -> Icons.Rounded.Widgets
+        ComponentType.PHOTO_CUBE -> Icons.Rounded.PhotoLibrary
+        ComponentType.HITOKOTO_CARD -> Icons.Rounded.FormatQuote
+        ComponentType.TEXT_LABEL -> Icons.Rounded.TextFields
         ComponentType.FOLDER -> Icons.Rounded.Folder
         ComponentType.CONTAINER_BOX -> Icons.Rounded.GridView
         ComponentType.WEBSITE_LINK -> Icons.Rounded.Language
@@ -514,9 +565,13 @@ private fun FolderPreviewIcon(title: String, packageName: String, iconUri: Strin
         if (customImageBitmap == null && packageName.isNotBlank() && resolvedPreviewBitmap == null &&
             !AppAndIntentLauncher.isKnownMissingPackage(packageName)
         ) {
-            val appInfo = AppAndIntentLauncher.getAppInfoCached(context, packageName)
+            val appInfo = AppAndIntentLauncher.getAppInfoCached(context, packageName, notify = false)
             loadedPreviewBitmap = AppAndIntentLauncher.peekAppIconBitmap(packageName)
-                ?: appInfo?.icon?.let { runCatching { it.toBitmap(targetPx, targetPx).asImageBitmap() }.getOrNull() }
+                ?: appInfo?.icon?.let { drawable ->
+                    withContext(Dispatchers.Default) {
+                        runCatching { drawable.toBitmap(targetPx, targetPx).asImageBitmap() }.getOrNull()
+                    }
+                }
         }
     }
     if (customImageBitmap != null) Image(customImageBitmap, null, Modifier.size(size).clip(RoundedCornerShape(6.dp)))
@@ -524,4 +579,11 @@ private fun FolderPreviewIcon(title: String, packageName: String, iconUri: Strin
     else Box(Modifier.size(size).background(palette.accent.copy(alpha = .15f), RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
         Text(title.take(1), style = MaterialTheme.typography.labelSmall, color = palette.accent)
     }
+}
+
+/** A modal is a later child of the folder's full-window host, never another native
+ * Popup attached to the icon. ComponentEditModal owns its scrim, input and back stack. */
+@Composable
+internal fun FolderWindowLayer(content: @Composable () -> Unit) {
+    Box(Modifier.fillMaxSize()) { content() }
 }

@@ -35,10 +35,17 @@ import android.widget.Toast
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import androidx.core.content.FileProvider
+import com.example.globalminusone.system.ImageClipboard
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.coroutineContext
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -88,6 +95,35 @@ internal data class PixelCropRect(
 }
 
 private fun RectF.toCropBox(): CropBox = CropBox(left, top, right, bottom)
+
+/** Own the input immediately, even when the parent scope was already cancelled. */
+internal fun <T, R : Any> launchRegionExport(
+    scope: CoroutineScope,
+    input: T,
+    write: suspend (T) -> R?,
+    release: (T) -> Unit,
+    discard: suspend (R) -> Unit,
+    complete: (R?) -> Unit
+): Job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+    var output: R? = null
+    var delivered = false
+    try {
+        coroutineContext.ensureActive()
+        withContext(Dispatchers.IO) { output = write(input) }
+        coroutineContext.ensureActive()
+        complete(output)
+        delivered = true
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        Log.e("RegionScreenshotOverlay", "Screenshot export failed", failure)
+    } finally {
+        release(input)
+        if (!delivered) output?.let { result ->
+            withContext(NonCancellable + Dispatchers.IO) { runCatching { discard(result) } }
+        }
+    }
+}
 
 /**
  * Pure, unit-testable geometry engine for interactive region screenshot cropping, handle hit-testing,
@@ -202,17 +238,38 @@ internal object RegionCropGeometry {
         viewHeight: Int,
         bitmapWidth: Int,
         bitmapHeight: Int
+    ): PixelCropRect = viewRectToBitmapRectInBounds(
+        selection = selection,
+        imageLeft = 0f,
+        imageTop = 0f,
+        imageRight = viewWidth.coerceAtLeast(1).toFloat(),
+        imageBottom = viewHeight.coerceAtLeast(1).toFloat(),
+        bitmapWidth = bitmapWidth,
+        bitmapHeight = bitmapHeight
+    )
+
+    fun viewRectToBitmapRectInBounds(
+        selection: CropBox,
+        imageLeft: Float,
+        imageTop: Float,
+        imageRight: Float,
+        imageBottom: Float,
+        bitmapWidth: Int,
+        bitmapHeight: Int
     ): PixelCropRect {
         if (bitmapWidth <= 0 || bitmapHeight <= 0) return PixelCropRect(0, 0, 0, 0)
-        val vw = viewWidth.coerceAtLeast(1).toFloat()
-        val vh = viewHeight.coerceAtLeast(1).toFloat()
-        val scaleX = bitmapWidth.toFloat() / vw
-        val scaleY = bitmapHeight.toFloat() / vh
+        val dw = imageRight - imageLeft
+        val dh = imageBottom - imageTop
+        if (dw <= 0f || dh <= 0f || selection.left >= imageRight || selection.right <= imageLeft ||
+            selection.top >= imageBottom || selection.bottom <= imageTop
+        ) return PixelCropRect(0, 0, 0, 0)
+        val scaleX = bitmapWidth.toFloat() / dw
+        val scaleY = bitmapHeight.toFloat() / dh
 
-        val left = (selection.left * scaleX).roundToInt().coerceIn(0, bitmapWidth - 1)
-        val top = (selection.top * scaleY).roundToInt().coerceIn(0, bitmapHeight - 1)
-        val right = (selection.right * scaleX).roundToInt().coerceIn(left + 1, bitmapWidth)
-        val bottom = (selection.bottom * scaleY).roundToInt().coerceIn(top + 1, bitmapHeight)
+        val left = ((selection.left - imageLeft) * scaleX).roundToInt().coerceIn(0, bitmapWidth - 1)
+        val top = ((selection.top - imageTop) * scaleY).roundToInt().coerceIn(0, bitmapHeight - 1)
+        val right = ((selection.right - imageLeft) * scaleX).roundToInt().coerceIn(left + 1, bitmapWidth)
+        val bottom = ((selection.bottom - imageTop) * scaleY).roundToInt().coerceIn(top + 1, bitmapHeight)
         return PixelCropRect(left, top, right, bottom)
     }
 
@@ -250,28 +307,53 @@ internal object RegionCropGeometry {
 internal class RegionScreenshotOverlay(
     private val context: Context,
     private val windowManager: WindowManager,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val onAnalyzeRegion: ((Bitmap, Rect, ScreenAssistantMode, ScreenAssistantFrameSnapshot) -> Unit)? = null
 ) {
     private var rootContainer: FrameLayout? = null
     private var sourceBitmap: Bitmap? = null
     private var backCallback: OnBackInvokedCallback? = null
     private var savingOrSharing = false
+    private var exportJob: Job? = null
+    private var feedbackBannerView: TextView? = null
+    private var hideFeedbackRunnable: Runnable? = null
+    private var frameSnapshot: ScreenAssistantFrameSnapshot? = null
 
     val isShowing: Boolean
         get() = rootContainer != null
 
-    fun show(capturedBitmap: Bitmap) {
+    fun show(capturedBitmap: Bitmap, snapshot: ScreenAssistantFrameSnapshot) {
         dismiss()
+        frameSnapshot = snapshot
+        if (capturedBitmap.isRecycled) {
+            dismiss()
+            return
+        }
+        val screenshotWidth = capturedBitmap.width
+        val screenshotHeight = capturedBitmap.height
         val displayBounds = if (Build.VERSION.SDK_INT >= 30) windowManager.currentWindowMetrics.bounds else {
             val dm = context.resources.displayMetrics
             Rect(0, 0, dm.widthPixels, dm.heightPixels)
         }
-        if (!screenshotOrientationMatches(capturedBitmap.width, capturedBitmap.height, displayBounds.width(), displayBounds.height())) {
+        if (!screenshotOrientationMatches(screenshotWidth, screenshotHeight, displayBounds.width(), displayBounds.height())) {
             capturedBitmap.recycle()
+            dismiss()
             Toast.makeText(context, "屏幕方向已改变，请重新截屏", Toast.LENGTH_SHORT).show()
             return
         }
-        sourceBitmap = capturedBitmap
+        sourceBitmap = try {
+            if (capturedBitmap.config == Bitmap.Config.HARDWARE) {
+                capturedBitmap.copy(Bitmap.Config.ARGB_8888, false)
+                    ?.also { capturedBitmap.recycle() }
+                    ?: throw IllegalStateException("无法读取截屏像素")
+            } else capturedBitmap
+        } catch (failure: Throwable) {
+            if (!capturedBitmap.isRecycled) capturedBitmap.recycle()
+            dismiss()
+            Log.e(TAG, "Screenshot conversion failed", failure)
+            Toast.makeText(context, "无法读取截图，请重试", Toast.LENGTH_SHORT).show()
+            return
+        }
         savingOrSharing = false
 
         val density = context.resources.displayMetrics.density
@@ -280,8 +362,8 @@ internal class RegionScreenshotOverlay(
         val toolbarMarginPx = (12f * density).roundToInt()
 
         val selection = RegionCropGeometry.defaultInitialSelection(
-            capturedBitmap.width.toFloat(),
-            capturedBitmap.height.toFloat()
+            screenshotWidth.toFloat(),
+            screenshotHeight.toFloat()
         ).toRectF()
         val annotations = ArrayList<Path>()
         var activeStroke: Path? = null
@@ -291,13 +373,42 @@ internal class RegionScreenshotOverlay(
         lateinit var toolbar: LinearLayout
         lateinit var annotateBtn: TextView
         lateinit var undoBtn: TextView
+        lateinit var cancelBtn: TextView
         lateinit var canvasView: View
+
+        val feedbackBanner = TextView(context).apply {
+            visibility = View.GONE
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding((14f * density).roundToInt(), (8f * density).roundToInt(), (14f * density).roundToInt(), (8f * density).roundToInt())
+            elevation = 8f * density
+        }
+        feedbackBannerView = feedbackBanner
+
+        fun showOverlayFeedback(message: String, isError: Boolean = false) {
+            hideFeedbackRunnable?.let { feedbackBanner.removeCallbacks(it) }
+            feedbackBanner.background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 20f * density
+                setColor(if (isError) Color.parseColor("#EA8C1D18") else Color.parseColor("#EA1B5E20"))
+                setStroke(max(1, (1f * density).roundToInt()), Color.parseColor(if (isError) "#66EF9A9A" else "#66A5D6A7"))
+            }
+            feedbackBanner.text = message
+            feedbackBanner.visibility = View.VISIBLE
+            feedbackBanner.bringToFront()
+            val hideTask = Runnable {
+                feedbackBanner.visibility = View.GONE
+            }
+            hideFeedbackRunnable = hideTask
+            feedbackBanner.postDelayed(hideTask, 2600L)
+        }
 
         fun positionToolbar() {
             val tb = toolbarRef ?: return
             if (tb.width <= 0 || tb.height <= 0) return
-            val vw = if (canvasView.width > 0) canvasView.width else capturedBitmap.width
-            val vh = if (canvasView.height > 0) canvasView.height else capturedBitmap.height
+            val vw = if (canvasView.width > 0) canvasView.width else screenshotWidth
+            val vh = if (canvasView.height > 0) canvasView.height else screenshotHeight
             val (tx, ty) = RegionCropGeometry.computeToolbarPosition(
                 selection = selection.toCropBox(),
                 toolbarWidth = tb.width,
@@ -311,7 +422,8 @@ internal class RegionScreenshotOverlay(
         }
 
         canvasView = object : View(context) {
-            private val bitmapDst = Rect()
+            private val bitmapDst = RectF()
+            private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
             private val dimPaint = Paint().apply {
                 color = Color.argb(142, 0, 0, 0)
                 style = Paint.Style.FILL
@@ -375,8 +487,11 @@ internal class RegionScreenshotOverlay(
                 val vw = width.takeIf { it > 0 } ?: bmp.width
                 val vh = height.takeIf { it > 0 } ?: bmp.height
 
-                bitmapDst.set(0, 0, vw, vh)
-                canvas.drawBitmap(bmp, null, bitmapDst, null)
+                val fit = com.example.globalminusone.screenassistant.ScreenTextSelectionPolicy.computeFullDisplayRect(
+                    vw.toFloat(), vh.toFloat(), bmp.width, bmp.height
+                )
+                bitmapDst.set(fit[0], fit[1], fit[2], fit[3])
+                canvas.drawBitmap(bmp, null, bitmapDst, bitmapPaint)
 
                 // Draw any user pen annotations clipped inside selection
                 if (annotations.isNotEmpty() || activeStroke != null) {
@@ -428,7 +543,10 @@ internal class RegionScreenshotOverlay(
                 canvas.drawCircle(selection.right, selection.centerY(), dotR, handleAccentPaint)
 
                 // Pixel dimension + hint badge
-                val bmpRect = RegionCropGeometry.viewRectToBitmapRect(selection.toCropBox(), vw, vh, bmp.width, bmp.height)
+                val bmpRect = RegionCropGeometry.viewRectToBitmapRectInBounds(
+                    selection.toCropBox(),
+                    fit[0], fit[1], fit[2], fit[3], bmp.width, bmp.height
+                )
                 val modeTag = if (annotateMode) " · 标注模式" else " · 拖动四角/边框缩放"
                 val label = "${bmpRect.width} × ${bmpRect.height} px$modeTag"
                 val padH = 10f * density
@@ -530,36 +648,78 @@ internal class RegionScreenshotOverlay(
             contentDescription = "区域截屏画布"
         }
 
-        fun buildCroppedBitmap(): Bitmap? {
+        fun buildCroppedBitmapWithRect(includeAnnotations: Boolean = true): Pair<Bitmap, Rect>? {
             val bmp = sourceBitmap ?: return null
             if (bmp.isRecycled) return null
             val vw = canvasView.width.takeIf { it > 0 } ?: bmp.width
             val vh = canvasView.height.takeIf { it > 0 } ?: bmp.height
-            val crop = RegionCropGeometry.viewRectToBitmapRect(selection.toCropBox(), vw, vh, bmp.width, bmp.height)
+            val fit = com.example.globalminusone.screenassistant.ScreenTextSelectionPolicy.computeFullDisplayRect(
+                vw.toFloat(), vh.toFloat(), bmp.width, bmp.height
+            )
+            val crop = RegionCropGeometry.viewRectToBitmapRectInBounds(
+                selection.toCropBox(),
+                fit[0], fit[1], fit[2], fit[3], bmp.width, bmp.height
+            )
             if (crop.width <= 0 || crop.height <= 0) return null
 
-            val out = Bitmap.createBitmap(bmp, crop.left, crop.top, crop.width, crop.height)
-            if (annotations.isEmpty()) return out
-
-            val mutableOut = if (out.isMutable) out else out.copy(Bitmap.Config.ARGB_8888, true).also {
-                if (it !== out) out.recycle()
-            } ?: return out
-            val c = Canvas(mutableOut)
-            val scaleX = bmp.width.toFloat() / vw.toFloat()
-            val scaleY = bmp.height.toFloat() / vh.toFloat()
-            c.save()
-            c.translate(-crop.left.toFloat(), -crop.top.toFloat())
-            c.scale(scaleX, scaleY)
-            val pen = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.parseColor("#FF4D4F")
-                style = Paint.Style.STROKE
-                strokeWidth = 3.2f * density
-                strokeCap = Paint.Cap.ROUND
-                strokeJoin = Paint.Join.ROUND
+            val cropRect = Rect(crop.left, crop.top, crop.left + crop.width, crop.top + crop.height)
+            // Always allocate independent software pixels: full selection must never alias source.
+            val out = try {
+                Bitmap.createBitmap(crop.width, crop.height, Bitmap.Config.ARGB_8888)
+            } catch (failure: Throwable) {
+                Log.e(TAG, "Unable to allocate region screenshot", failure)
+                return null
             }
-            for (path in annotations) c.drawPath(path, pen)
-            c.restore()
-            return mutableOut
+            try {
+                val c = Canvas(out)
+                val cropPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
+                c.drawBitmap(bmp, cropRect, Rect(0, 0, crop.width, crop.height), cropPaint)
+                if (!includeAnnotations || annotations.isEmpty()) return out to cropRect
+                val scaleX = bmp.width.toFloat() / (fit[2] - fit[0]).coerceAtLeast(1f)
+                val scaleY = bmp.height.toFloat() / (fit[3] - fit[1]).coerceAtLeast(1f)
+                c.save()
+                c.translate(-crop.left.toFloat(), -crop.top.toFloat())
+                c.scale(scaleX, scaleY)
+                c.translate(-fit[0], -fit[1])
+                val pen = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.parseColor("#FF4D4F")
+                    style = Paint.Style.STROKE
+                    strokeWidth = 3.2f * density
+                    strokeCap = Paint.Cap.ROUND
+                    strokeJoin = Paint.Join.ROUND
+                }
+                for (path in annotations) c.drawPath(path, pen)
+                c.restore()
+                return out to cropRect
+            } catch (failure: Throwable) {
+                out.recycle()
+                Log.e(TAG, "Unable to crop region screenshot", failure)
+                return null
+            }
+        }
+
+        fun buildCroppedBitmap(): Bitmap? = buildCroppedBitmapWithRect()?.first
+
+        fun launchRegionAnalysis(mode: ScreenAssistantMode) {
+            if (savingOrSharing) return
+            val callback = onAnalyzeRegion ?: return
+            val snapshot = frameSnapshot ?: return
+            val result = buildCroppedBitmapWithRect(includeAnnotations = mode != ScreenAssistantMode.SUB_IMAGES)
+            if (result == null) {
+                Toast.makeText(context, "裁剪区域无效", Toast.LENGTH_SHORT).show()
+                return
+            }
+            savingOrSharing = true
+            frameSnapshot = null // The assistant now owns this capture's enrichment.
+            dismiss()
+            try {
+                callback(result.first, result.second, mode, snapshot)
+            } catch (failure: Throwable) {
+                snapshot.enriched?.cancel()
+                if (!result.first.isRecycled) result.first.recycle()
+                Log.e(TAG, "Region analysis handoff failed", failure)
+                Toast.makeText(context, "无法打开屏幕识别，请重试", Toast.LENGTH_SHORT).show()
+            }
         }
 
         fun makeActionChip(
@@ -597,13 +757,13 @@ internal class RegionScreenshotOverlay(
         }
 
         toolbar = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
             val pad = (6 * density).roundToInt()
             setPadding(pad, pad, pad, pad)
             elevation = 10f * density
             background = GradientDrawable().apply {
-                cornerRadius = 22f * density
+                cornerRadius = 18f * density
                 setColor(Color.argb(236, 22, 26, 35))
                 setStroke((1f * density).roundToInt().coerceAtLeast(1), Color.argb(90, 255, 255, 255))
             }
@@ -611,10 +771,20 @@ internal class RegionScreenshotOverlay(
         }
         toolbarRef = toolbar
 
-        val cancelBtn = makeActionChip("取消") { dismiss() }
+        val ocrBtn = if (onAnalyzeRegion != null) {
+            makeActionChip("识字", accentActive = true) { launchRegionAnalysis(ScreenAssistantMode.TEXT_SELECT) }
+        } else null
+        val translateBtn = if (onAnalyzeRegion != null) {
+            makeActionChip("翻译", accentActive = true) { launchRegionAnalysis(ScreenAssistantMode.TRANSLATE_INPLACE) }
+        } else null
+        val subImageBtn = if (onAnalyzeRegion != null) {
+            makeActionChip("提图", accentActive = true) { launchRegionAnalysis(ScreenAssistantMode.SUB_IMAGES) }
+        } else null
+
+        cancelBtn = makeActionChip("取消") { dismiss() }
         val fullBtn = makeActionChip("全选") {
-            val vw = (canvasView.width.takeIf { it > 0 } ?: capturedBitmap.width).toFloat()
-            val vh = (canvasView.height.takeIf { it > 0 } ?: capturedBitmap.height).toFloat()
+            val vw = (canvasView.width.takeIf { it > 0 } ?: screenshotWidth).toFloat()
+            val vh = (canvasView.height.takeIf { it > 0 } ?: screenshotHeight).toFloat()
             selection.set(0f, 0f, vw, vh)
             canvasView.invalidate()
             toolbar.post { positionToolbar() }
@@ -634,61 +804,129 @@ internal class RegionScreenshotOverlay(
             canvasView.invalidate()
         }
 
-        val shareBtn = makeActionChip("分享") {
-            if (savingOrSharing) return@makeActionChip
+        val shareAction = share@{
+            if (savingOrSharing) return@share
             val cropped = buildCroppedBitmap()
             if (cropped == null) {
-                Toast.makeText(context, "裁剪区域无效", Toast.LENGTH_SHORT).show()
-                return@makeActionChip
+                showOverlayFeedback("裁剪区域无效", isError = true)
+                return@share
             }
             savingOrSharing = true
-            scope.launch {
-                val shareUri = withContext(Dispatchers.IO) { writeCroppedToShareCache(context, cropped) }
-                cropped.recycle()
-                dismiss()
+            exportJob = launchRegionExport(
+                scope = scope,
+                input = cropped,
+                write = { writeCroppedToShareCache(context, it) },
+                release = { if (!it.isRecycled) it.recycle() },
+                discard = { context.contentResolver.delete(it, null, null) }
+            ) { shareUri ->
+                exportJob = null
+                savingOrSharing = false
                 if (shareUri != null) {
                     runCatching {
                         val send = Intent(Intent.ACTION_SEND).apply {
                             type = "image/png"
+                            clipData = ClipData.newRawUri("RegionScreenshot", shareUri)
                             putExtra(Intent.EXTRA_STREAM, shareUri)
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         }
                         val chooser = Intent.createChooser(send, "分享区域截图").apply {
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         }
                         context.startActivity(chooser)
+                    }.onSuccess {
+                        dismiss()
                     }.onFailure {
+                        showOverlayFeedback("无法调起系统分享: ${it.message}", isError = true)
                         Toast.makeText(context, "无法调起系统分享: ${it.message}", Toast.LENGTH_SHORT).show()
                     }
                 } else {
+                    showOverlayFeedback("生成分享图片失败", isError = true)
                     Toast.makeText(context, "生成分享图片失败", Toast.LENGTH_SHORT).show()
                 }
             }
+            exportJob?.invokeOnCompletion {
+                toolbar.post { savingOrSharing = false }
+            }
         }
+        val copyImageAction = copy@{
+            if (savingOrSharing) return@copy
+            val cropped = buildCroppedBitmap()
+            if (cropped == null) {
+                showOverlayFeedback("裁剪区域无效", isError = true)
+                return@copy
+            }
+            val w = cropped.width
+            val h = cropped.height
+            savingOrSharing = true
+            exportJob = launchRegionExport(
+                scope = scope,
+                input = cropped,
+                write = {
+                    try {
+                        ImageClipboard.copy(context, it)
+                        true
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        Log.w("RegionScreenshotOverlay", "Cannot copy screenshot", failure)
+                        false
+                    }
+                },
+                release = { if (!it.isRecycled) it.recycle() },
+                discard = { /* Published clipboard image is retained independently of this overlay. */ }
+            ) { copied ->
+                exportJob = null
+                savingOrSharing = false
+                if (copied == true) {
+                    cancelBtn.text = "完成"
+                    showOverlayFeedback("✓ 已复制区域截图 ($w×$h)，可继续保存、分享或识字")
+                    Toast.makeText(context, "已复制区域截图到剪贴板", Toast.LENGTH_SHORT).show()
+                } else {
+                    showOverlayFeedback("复制图片失败，请重试", isError = true)
+                    Toast.makeText(context, "复制图片失败", Toast.LENGTH_SHORT).show()
+                }
+            }
+            exportJob?.invokeOnCompletion {
+                toolbar.post { savingOrSharing = false }
+            }
+        }
+        val copyBtn = makeActionChip("复制") { copyImageAction() }
+        val shareDirectBtn = makeActionChip("分享") { shareAction() }
 
         val saveBtn = makeActionChip("保存", primary = true) {
             if (savingOrSharing) return@makeActionChip
             val cropped = buildCroppedBitmap()
             if (cropped == null) {
-                Toast.makeText(context, "裁剪区域无效", Toast.LENGTH_SHORT).show()
+                showOverlayFeedback("裁剪区域无效", isError = true)
                 return@makeActionChip
             }
             val w = cropped.width
             val h = cropped.height
             savingOrSharing = true
-            scope.launch {
-                val savedUri = withContext(Dispatchers.IO) { saveCroppedToMediaStore(context, cropped) }
-                cropped.recycle()
-                dismiss()
+            exportJob = launchRegionExport(
+                scope = scope,
+                input = cropped,
+                write = { saveCroppedToMediaStore(context, it) },
+                release = { if (!it.isRecycled) it.recycle() },
+                discard = { context.contentResolver.delete(it, null, null) }
+            ) { savedUri ->
+                exportJob = null
+                savingOrSharing = false
                 if (savedUri != null) {
                     runCatching {
                         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
                         cm?.setPrimaryClip(ClipData.newUri(context.contentResolver, "RegionScreenshot", savedUri))
                     }
+                    cancelBtn.text = "完成"
+                    showOverlayFeedback("✓ 已保存至相册并写入剪贴板 ($w×$h)，可继续其他操作")
                     Toast.makeText(context, "区域截图已保存至相册 ($w×$h)", Toast.LENGTH_SHORT).show()
                 } else {
+                    showOverlayFeedback("保存区域截图失败，请检查存储权限", isError = true)
                     Toast.makeText(context, "保存区域截图失败", Toast.LENGTH_SHORT).show()
                 }
+            }
+            exportJob?.invokeOnCompletion {
+                toolbar.post { savingOrSharing = false }
             }
         }
 
@@ -696,19 +934,39 @@ internal class RegionScreenshotOverlay(
             LinearLayout.LayoutParams.WRAP_CONTENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { marginEnd = (4 * density).roundToInt() }
+        val wrapLp = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
 
-        toolbar.addView(cancelBtn, gapLp)
-        toolbar.addView(fullBtn, gapLp)
-        toolbar.addView(annotateBtn, gapLp)
-        toolbar.addView(undoBtn, gapLp)
-        toolbar.addView(shareBtn, gapLp)
+        val topRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            if (ocrBtn != null && translateBtn != null && subImageBtn != null) {
+                addView(ocrBtn, gapLp)
+                addView(translateBtn, gapLp)
+                addView(subImageBtn, gapLp)
+            }
+            addView(annotateBtn, gapLp)
+            addView(undoBtn, wrapLp)
+        }
+        val bottomRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(cancelBtn, gapLp)
+            addView(fullBtn, gapLp)
+            addView(copyBtn, gapLp)
+            addView(shareDirectBtn, gapLp)
+            addView(saveBtn, wrapLp)
+        }
         toolbar.addView(
-            saveBtn,
+            topRow,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            )
+            ).apply { bottomMargin = (4 * density).roundToInt() }
         )
+        toolbar.addView(bottomRow, wrapLp)
 
         val container = object : FrameLayout(context) {
             override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -727,11 +985,23 @@ internal class RegionScreenshotOverlay(
             isFocusableInTouchMode = true
             addView(canvasView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
             addView(toolbar, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT))
+            addView(
+                feedbackBanner,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                    topMargin = (52f * density).roundToInt()
+                    marginStart = (16f * density).roundToInt()
+                    marginEnd = (16f * density).roundToInt()
+                }
+            )
         }
 
         val params = WindowManager.LayoutParams(
-            capturedBitmap.width,
-            capturedBitmap.height,
+            screenshotWidth,
+            screenshotHeight,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
@@ -771,6 +1041,10 @@ internal class RegionScreenshotOverlay(
     }
 
     fun dismiss() {
+        frameSnapshot?.enriched?.cancel()
+        frameSnapshot = null
+        exportJob?.cancel()
+        exportJob = null
         val view = rootContainer
         rootContainer = null
         if (view != null) {
@@ -786,6 +1060,13 @@ internal class RegionScreenshotOverlay(
             sourceBitmap = null
             if (!bmp.isRecycled) bmp.recycle()
         }
+        val banner = feedbackBannerView
+        val hideTask = hideFeedbackRunnable
+        if (banner != null && hideTask != null) {
+            banner.removeCallbacks(hideTask)
+        }
+        hideFeedbackRunnable = null
+        feedbackBannerView = null
         savingOrSharing = false
     }
 
@@ -798,6 +1079,7 @@ internal class RegionScreenshotOverlay(
         private fun saveCroppedToMediaStore(context: Context, bitmap: Bitmap): Uri? {
             val fileName = "Screenshot_Region_${timestampToken()}.png"
             val resolver = context.contentResolver
+            var insertedUri: Uri? = null
             return try {
                 val values = ContentValues().apply {
                     put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
@@ -810,6 +1092,7 @@ internal class RegionScreenshotOverlay(
                     }
                 }
                 val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return null
+                insertedUri = uri
                 val ok = resolver.openOutputStream(uri)?.use { out ->
                     bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
                 } == true
@@ -819,27 +1102,31 @@ internal class RegionScreenshotOverlay(
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     val done = ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }
-                    resolver.update(uri, done, null, null)
+                    check(resolver.update(uri, done, null, null) > 0) { "Unable to publish screenshot" }
                 }
                 uri
             } catch (t: Throwable) {
+                insertedUri?.let { uri -> runCatching { resolver.delete(uri, null, null) } }
                 Log.e(TAG, "saveCroppedToMediaStore failed", t)
                 null
             }
         }
 
         private fun writeCroppedToShareCache(context: Context, bitmap: Bitmap): Uri? {
+            var createdFile: File? = null
             return try {
                 val dir = File(context.cacheDir, "region_screenshots").apply { mkdirs() }
                 dir.listFiles()?.sortedByDescending { it.lastModified() }?.drop(4)?.forEach {
                     runCatching { it.delete() }
                 }
                 val file = File(dir, "Region_${timestampToken()}.png")
+                createdFile = file
                 FileOutputStream(file).use { out ->
-                    if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) return null
+                    check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) { "Unable to encode screenshot" }
                 }
                 FileProvider.getUriForFile(context, "${context.packageName}.files", file)
             } catch (t: Throwable) {
+                createdFile?.let { file -> runCatching { file.delete() } }
                 Log.e(TAG, "writeCroppedToShareCache failed", t)
                 null
             }

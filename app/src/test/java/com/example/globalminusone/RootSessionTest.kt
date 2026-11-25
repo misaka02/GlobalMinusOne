@@ -66,6 +66,53 @@ class RootSessionTest {
         UserRootSession.runPrivilegeAction(PrivilegeAction.WIFI_STATE)
         assertEquals(2, calls)
     }
+    @Test fun screenReadRecoversAnEarlierGrantOnceAfterTransportLoss() = runBlocking {
+        var opens = 0
+        install { request ->
+            if (request.entryMarker == null) {
+                opens++
+                RootProcessOutcome(0, "0\n".toByteArray())
+            } else {
+                entered(request, 124).copy(timedOut = true)
+            }
+        }
+        assertTrue(UserRootSession.requestAuthorization().succeeded)
+        val oldEpoch = UserRootSession.authorizedEpoch()!!
+        assertFalse(UserRootSession.runBoundedCommand("echo cache_probe", 4096, 2_000L).leaseCurrent)
+        assertTrue(UserRootSession.connectForScreenRead(allowConfiguredConnect = false))
+        assertFalse(UserRootSession.isAuthorizationCurrent(oldEpoch))
+        assertEquals(2, opens)
+        assertFalse(UserRootSession.runBoundedCommand("echo cache_probe", 4096, 2_000L).leaseCurrent)
+        assertFalse(UserRootSession.connectForScreenRead(allowConfiguredConnect = true))
+        assertEquals(2, opens)
+    }
+
+    @Test fun screenReadRespectsAColdSettingAndNeverReopensAfterUserRevocationOrDenial() = runBlocking {
+        var opens = 0
+        install { opens++; RootProcessOutcome(0, "0\n".toByteArray()) }
+        assertFalse(UserRootSession.connectForScreenRead(allowConfiguredConnect = false))
+        assertEquals(0, opens)
+        assertTrue(UserRootSession.connectForScreenRead(allowConfiguredConnect = true))
+        UserRootSession.revokeAuthorization()
+        assertFalse(UserRootSession.connectForScreenRead(allowConfiguredConnect = true))
+        assertEquals(1, opens)
+        install { opens++; RootProcessOutcome(1) }
+        assertFalse(UserRootSession.connectForScreenRead(allowConfiguredConnect = true))
+        assertEquals(RootStatus.Denied, UserRootSession.status.value)
+        assertFalse(UserRootSession.connectForScreenRead(allowConfiguredConnect = true))
+        assertEquals(2, opens)
+    }
+    @Test fun configuredScreenReadCanRecoverAColdTransportFailureOnce() = runBlocking {
+        var attempts = 0
+        install {
+            if (++attempts == 1) error("Synthetic socket closed at startup")
+            RootProcessOutcome(0, "0\n".toByteArray())
+        }
+        assertFalse(UserRootSession.connectForScreenRead(allowConfiguredConnect = true))
+        assertEquals(RootStatus.Error, UserRootSession.status.value)
+        assertTrue(UserRootSession.connectForScreenRead(allowConfiguredConnect = true))
+        assertEquals(2, attempts)
+    }
     @Test fun revokeDiscardsLateAuthorizationAndLateFileBytes() = runBlocking {
         val started = CompletableDeferred<Unit>(); val finish = CompletableDeferred<Unit>()
         install { started.complete(Unit); finish.await(); RootProcessOutcome(0, "0".toByteArray()) }

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,6 +45,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.globalminusone.data.ClipboardRecord
+import kotlinx.coroutines.flow.StateFlow
 import com.example.globalminusone.data.ComponentItem
 import com.example.globalminusone.data.TEXT_LABEL_FONT_SIZE_SP
 import com.example.globalminusone.data.TEXT_LABEL_LINE_HEIGHT_SP
@@ -62,9 +65,16 @@ fun HitokotoCardComponent(
     state: GlobalMinusOneState,
     repository: MinusOneRepository
 ) {
+    HitokotoCardContent(state.appearanceConfig.customMotto, { repository.isPanelExpanded }) { next ->
+        repository.updateAppearanceConfig { it.copy(customMotto = next) }
+    }
+}
+
+@Composable
+internal fun HitokotoCardContent(customMotto: String, expandedState: () -> StateFlow<Boolean>, onMotto: (String) -> Unit) {
     val cardColors = LocalCardColors.current
     var calendar by remember { mutableStateOf(Calendar.getInstance()) }
-    val panelExpanded by repository.isPanelExpanded.collectAsState()
+    val panelExpanded by expandedState().collectAsState()
 
     LaunchedEffect(panelExpanded) {
         if (!panelExpanded) return@LaunchedEffect
@@ -112,9 +122,9 @@ fun HitokotoCardComponent(
                 .clip(RoundedCornerShape(8.dp))
                 .clickable {
                     val pool = DefaultPresets.builtInMottos
-                    val currentMotto = state.appearanceConfig.customMotto
+                    val currentMotto = customMotto
                     val next = pool.filter { it != currentMotto }.randomOrNull() ?: pool.random()
-                    repository.updateAppearanceConfig { it.copy(customMotto = next) }
+                    onMotto(next)
                 }
                 .padding(4.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -127,7 +137,7 @@ fun HitokotoCardComponent(
             )
             Spacer(modifier = Modifier.width(4.dp))
             Text(
-                text = state.appearanceConfig.customMotto,
+                text = customMotto,
                 color = cardColors.textSecondary,
                 fontSize = 11.sp,
                 maxLines = 2,
@@ -144,20 +154,31 @@ fun NoteCardComponent(
     pageIndex: Int,
     repository: MinusOneRepository
 ) {
+    NoteCardContent(item) { repository.updateComponentText(pageIndex, item.id, it) }
+}
+
+@Composable
+internal fun NoteCardContent(item: ComponentItem, onTextChanged: (String) -> Unit) {
     val cardColors = LocalCardColors.current
     val isEditMode = LocalIsEditMode.current
     var noteText by remember(item.id, item.textContent) { mutableStateOf(item.textContent) }
+    val noteScroll = rememberScrollState()
+    val canScrollNote = !isEditMode && (noteScroll.canScrollForward || noteScroll.canScrollBackward)
 
     Box(
         modifier = Modifier.fillMaxSize().padding(8.dp)
-            .ownPanelScrollGestures(!isEditMode)
-            .verticalScroll(rememberScrollState(), enabled = !isEditMode)
+            .ownPanelScrollGestures(
+                enabled = canScrollNote,
+                canScrollVertically = { dy -> if (dy < 0f) noteScroll.canScrollForward else noteScroll.canScrollBackward },
+                axis = PanelGestureAxis.Vertical
+            )
+            .verticalScroll(noteScroll, enabled = canScrollNote, flingBehavior = rememberPanelFlingBehavior())
     ) {
         BasicTextField(
             value = noteText,
             onValueChange = {
                 noteText = it
-                repository.updateComponentText(pageIndex, item.id, it)
+                onTextChanged(it)
             },
             enabled = !isEditMode,
             modifier = Modifier.fillMaxWidth(),
@@ -187,6 +208,11 @@ fun TextLabelComponent(
     pageIndex: Int,
     repository: MinusOneRepository
 ) {
+    TextLabelCardContent(item) { repository.updateComponentText(pageIndex, item.id, it) }
+}
+
+@Composable
+internal fun TextLabelCardContent(item: ComponentItem, onTextChanged: (String) -> Unit) {
     val cardColors = LocalCardColors.current
     val isEditMode = LocalIsEditMode.current
     var textContent by remember(item.id, item.textContent) { mutableStateOf(item.textContent) }
@@ -201,7 +227,7 @@ fun TextLabelComponent(
             value = textContent,
             onValueChange = {
                 textContent = it
-                repository.updateComponentText(pageIndex, item.id, it)
+                onTextChanged(it)
             },
             enabled = !isEditMode,
             modifier = Modifier.fillMaxWidth(),
@@ -233,9 +259,17 @@ fun ClipboardCardComponent(
     repository: MinusOneRepository,
     systemController: SystemController
 ) {
+    ClipboardCardContent(state.clipboardHistory, rememberClipboardHistoryActions(repository), rememberClipboardTextAccess(systemController))
+}
+
+@Composable
+internal fun ClipboardCardContent(records: List<ClipboardRecord>, history: ClipboardHistoryActions, clipboard: ClipboardTextAccess) {
     var clearRequest by remember { mutableStateOf<Set<String>?>(null) }
-    clearRequest?.let { expected -> ClipboardClearConfirmation(expected, repository) { clearRequest = null } }
+    clearRequest?.let { expected -> ClipboardClearConfirmationContent(expected, history) { clearRequest = null } }
     val cardColors = LocalCardColors.current
+    val isEditMode = LocalIsEditMode.current
+    val listState = rememberLazyListState()
+    val canScrollList = !isEditMode && (listState.canScrollForward || listState.canScrollBackward)
 
     Column(
         modifier = Modifier
@@ -256,9 +290,7 @@ fun ClipboardCardComponent(
             Row {
                 FilledTonalButton(
                     onClick = {
-                        systemController.readCurrentClipboardText()?.let {
-                            repository.recordClipboardText(it)
-                        }
+                        recordCurrentClipboard(history, clipboard)
                     },
                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                     shape = RoundedCornerShape(6.dp),
@@ -268,8 +300,8 @@ fun ClipboardCardComponent(
                 }
                 Spacer(modifier = Modifier.width(4.dp))
                 TextButton(
-                    onClick = { clearRequest = repository.state.value.clipboardHistory.filterNot { it.pinned }.map { it.id }.toSet() },
-                    enabled = state.clipboardHistory.any { !it.pinned },
+                    onClick = { clearRequest = history.currentRecords.filterNot { it.pinned }.map { it.id }.toSet() },
+                    enabled = records.any { !it.pinned },
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
                     modifier = Modifier.height(24.dp)
                 ) {
@@ -280,7 +312,7 @@ fun ClipboardCardComponent(
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        if (state.clipboardHistory.isEmpty()) {
+        if (records.isEmpty()) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text(
                     text = "暂无剪贴板历史",
@@ -290,16 +322,23 @@ fun ClipboardCardComponent(
             }
         } else {
             LazyColumn(
+                state = listState,
+                userScrollEnabled = canScrollList,
                 flingBehavior = rememberPanelFlingBehavior(),
-                modifier = Modifier.weight(1f).fillMaxWidth(),
+                modifier = Modifier.weight(1f).fillMaxWidth()
+                    .ownPanelScrollGestures(
+                        enabled = canScrollList,
+                        canScrollVertically = { dy -> if (dy < 0f) listState.canScrollForward else listState.canScrollBackward },
+                        axis = PanelGestureAxis.Vertical
+                    ),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                items(state.clipboardHistory.take(5), key = { it.id }) { record ->
+                items(records.take(5), key = { it.id }) { record ->
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(6.dp))
-                            .clickable { systemController.copyToClipboard("剪贴板", record.text) },
+                            .clickable { clipboard.copyToClipboard("剪贴板", record.text) },
                         shape = RoundedCornerShape(6.dp),
                         color = if (record.pinned) cardColors.accent.copy(alpha = 0.15f) else cardColors.iconBackground
                     ) {
@@ -316,7 +355,7 @@ fun ClipboardCardComponent(
                                 modifier = Modifier.weight(1f)
                             )
                             IconButton(
-                                onClick = { repository.togglePinClipboard(record.id) },
+                                onClick = { history.togglePinClipboard(record.id) },
                                 modifier = Modifier.size(22.dp)
                             ) {
                                 Icon(
@@ -327,7 +366,7 @@ fun ClipboardCardComponent(
                                 )
                             }
                             IconButton(
-                                onClick = { repository.deleteClipboardRecord(record.id) },
+                                onClick = { history.deleteClipboardRecord(record.id) },
                                 modifier = Modifier.size(22.dp)
                             ) {
                                 Icon(
@@ -343,4 +382,34 @@ fun ClipboardCardComponent(
             }
         }
     }
+}
+
+@Composable
+internal fun NotificationCountContent(context: android.content.Context, expandedState: () -> StateFlow<Boolean>) {
+    val statistics = remember(context) { com.example.globalminusone.data.ActivityStatisticsStore.get(context) }
+    val counts by statistics.counts.collectAsState()
+    val statsVisible by expandedState().collectAsState()
+    LaunchedEffect(statistics, statsVisible) {
+        if (!statsVisible) return@LaunchedEffect
+        while (true) {
+            statistics.refresh()
+            kotlinx.coroutines.delay(30_000L)
+        }
+    }
+    StatCountComponent("${counts.notifications}", "今日通知·已选应用", Icons.Rounded.Notifications)
+}
+
+@Composable
+internal fun UnlockCountContent(context: android.content.Context, expandedState: () -> StateFlow<Boolean>) {
+    val statistics = remember(context) { com.example.globalminusone.data.ActivityStatisticsStore.get(context) }
+    val counts by statistics.counts.collectAsState()
+    val statsVisible by expandedState().collectAsState()
+    LaunchedEffect(statistics, statsVisible) {
+        if (!statsVisible) return@LaunchedEffect
+        while (true) {
+            statistics.refresh()
+            kotlinx.coroutines.delay(30_000L)
+        }
+    }
+    StatCountComponent("${counts.unlocks}", "今日解锁·服务期间", Icons.Rounded.Lock)
 }

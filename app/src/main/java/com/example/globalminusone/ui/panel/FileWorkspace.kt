@@ -63,6 +63,7 @@ fun FileBrowserPanel(
     val closeHandlers = remember { arrayOfNulls<() -> Unit>(2) }
     val windowCloseHandlers = remember { arrayOfNulls<FileWindowCloseRequest>(2) }
     var active by remember { mutableIntStateOf(0) }
+    val closeSequence = remember { FileWorkspaceCloseSequence() }
     var closeCheckingPane by remember { mutableStateOf<Int?>(null) }
     var sourcePane by remember { mutableIntStateOf(0) }
     var ownedClipboard by remember { mutableStateOf<TransferClipboard?>(null) }
@@ -108,26 +109,38 @@ fun FileBrowserPanel(
     }
     val closeWorkspace by rememberUpdatedState<() -> Unit>({
         if (!busy && closeCheckingPane == null) {
-            // Lock other panes until the current dirty decision is accepted or cancelled.
-            fun closeAfterPane(pane: Int) {
-                if (busy) { closeCheckingPane = null; return }
-                if (pane == windowCloseHandlers.size) { closeCheckingPane = null; onDismiss() }
-                else {
-                    closeCheckingPane = pane
-                    active = pane
-                    val handler = windowCloseHandlers[pane]
-                    if (handler == null) closeAfterPane(pane + 1)
-                    else handler({ closeAfterPane(pane + 1) }, { closeCheckingPane = null })
+            val token = closeSequence.begin()
+            if (token != null) {
+                // Each pane settles once; cancelled/disposed attempts cannot reach onDismiss.
+                fun closeAfterPane(pane: Int) {
+                    if (!closeSequence.isPending(token, pane)) return
+                    if (busy) { closeSequence.cancel(token); closeCheckingPane = null; return }
+                    if (pane == windowCloseHandlers.size) {
+                        closeSequence.cancel(token); closeCheckingPane = null; onDismiss()
+                    } else {
+                        closeCheckingPane = pane
+                        active = pane
+                        val allowed = {
+                            if (closeSequence.accept(token, pane)) closeAfterPane(pane + 1)
+                        }
+                        val cancelled = {
+                            if (closeSequence.isPending(token, pane)) {
+                                closeSequence.cancel(token); closeCheckingPane = null
+                            }
+                        }
+                        val handler = windowCloseHandlers[pane]
+                        if (handler == null) allowed() else handler(allowed, cancelled)
+                    }
                 }
+                closeAfterPane(0)
             }
-            closeAfterPane(0)
         }
     })
     DisposableEffect(Unit) {
         onCloseHandlerChanged { closeWorkspace() }
-        onDispose { onCloseHandlerChanged(null) }
+        onDispose { closeSequence.dispose(); onCloseHandlerChanged(null) }
     }
-    LaunchedEffect(expanded) { if (!expanded) { confirmation = null; transferJob?.cancel() } }
+    LaunchedEffect(expanded) { if (!expanded) { closeSequence.invalidate(); closeCheckingPane = null; confirmation = null; transferJob?.cancel() } }
     // Copy/cut from the existing file-management page participates in the same workspace clipboard.
     LaunchedEffect(clipboard.value) {
         clipboard.value?.let { clip ->
@@ -316,7 +329,12 @@ fun FileBrowserPanel(
                                 onPreviewChanged = { previewing[pane].value = it },
                                 onTransferToOther = { requestTransfer(pane, it) }, onChanged = { refresh++ },
                                 onCloseHandlerChanged = { closeHandlers[pane] = it },
-                                onWindowCloseHandler = { windowCloseHandlers[pane] = it }, onDismiss = onDismiss)
+                                onWindowCloseHandler = { handler ->
+                                    if (closeCheckingPane == pane && windowCloseHandlers[pane] !== handler) {
+                                        closeSequence.invalidate(); closeCheckingPane = null
+                                    }
+                                    windowCloseHandlers[pane] = handler
+                                }, onDismiss = onDismiss)
                             if ((closeCheckingPane != null && closeCheckingPane != pane) ||
                                 (wide && active != pane && editing[active].value)) {
                                 Box(Modifier.matchParentSize().background(palette.cardBackground.copy(alpha = .08f))

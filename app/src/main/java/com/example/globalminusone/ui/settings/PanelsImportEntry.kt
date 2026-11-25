@@ -200,7 +200,7 @@ private fun PanelsImportDialog(archive: PanelsImportArchive, state: GlobalMinusO
     }
     AlertDialog(onDismissRequest = { if (!busy) onDismiss() },
         title = {
-            com.example.globalminusone.service.Android12WindowKeyGuard()
+            com.example.globalminusone.ui.Android12WindowKeyGuard()
             Text("导入 Panels 布局")
         },
         text = {

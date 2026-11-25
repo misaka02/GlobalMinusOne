@@ -703,23 +703,25 @@ class ChromeSurfaceView @JvmOverloads constructor(context: Context, attrs: Attri
             override fun onNullBinding(name: ComponentName) { if (!handedToPool.get()) target.get()?.fail(token, IllegalStateException("小窗服务未提供有效连接")) }
         }
     }
+    private data class OwnedBackendSession(val owner: EmbeddedBackendPool.Entry, val client: ChromeBridge.Client)
     private fun connectedSession(token: Long, factory: ChromeBridge.Client) {
+        val owner = backendLease ?: run { fail(token, IllegalStateException("后端连接已结束")); return }
         // The cached factory is still a synchronous cross-process Binder client.
         // Share the open/close/output queue so a restart cannot overtake its old close.
         executor().execute {
             if (!leaseValid(token)) return@execute
             runCatching { factory.newSession() }.onSuccess { session ->
-                ui { connected(token, session.binder(), session) }
+                ui { connected(token, session.binder(), OwnedBackendSession(owner, session)) }
             }.onFailure { fail(token, it) }
         }
     }
-    private fun connected(token: Long, binder: IBinder, session: ChromeBridge.Client? = null) {
+    private fun connected(token: Long, binder: IBinder, session: OwnedBackendSession? = null) {
         if (!leaseValid(token)) {
-            session?.let(EmbeddedBackendPool::closeSession)
+            session?.let { EmbeddedBackendPool.closeSession(it.owner, it.client) }
             fail(token, SecurityException("授权已失效，未打开窗口")); return
         }
         cancelConnectionTimeout()
-        val remote = session ?: ChromeBridge.Client(binder)
+        val remote = session?.client ?: ChromeBridge.Client(binder)
         client = remote; connecting = false
         binderDeath = IBinder.DeathRecipient { fail(token, IllegalStateException("Chrome显示进程已结束")) }
         runCatching { binder.linkToDeath(binderDeath!!, 0) }.onFailure { fail(token, it); return }

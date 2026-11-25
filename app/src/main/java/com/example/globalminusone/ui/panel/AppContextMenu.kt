@@ -55,6 +55,7 @@ internal fun AppContextMenuTarget(
     onEdit: (() -> Unit)? = LocalAppEditAction.current,
     editLabel: String = LocalAppEditLabel.current,
     legacyAction: QuickActionItem? = null,
+    isPopOutLauncherIcon: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
@@ -63,11 +64,16 @@ internal fun AppContextMenuTarget(
     val folderReturn = LocalFolderReturnState.current
     val effectiveEnabled = enabled || folderInteraction != null
     val env = LocalAppMenuEnvironment.current
-    val repository = env?.repository
-    val liveState = repository?.state?.collectAsState()?.value
-    val locked = liveState?.advancedConfig?.layoutLocked ?: LocalLayoutLocked.current
-    val card = env?.item?.takeIf { legacyAction == null && isAppContextMenuCardType(it.type) }
-    val editable = repository != null && !locked
+    val actions = env?.actions
+    val liveState = actions?.observeMenuState()
+    val locked = liveState?.layoutLocked ?: LocalLayoutLocked.current
+    val card = env?.item?.takeIf {
+        legacyAction == null && (
+            isAppContextMenuCardType(it.type) ||
+                (isPopOutLauncherIcon && it.type in POPOUT_CAPABLE_CARD_TYPES)
+            )
+    }
+    val editable = actions != null && !locked
     var expanded by remember(packageName, label) { mutableStateOf(false) }
     var heldMenu by remember(packageName, label) { mutableStateOf(false) }
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
@@ -95,8 +101,9 @@ internal fun AppContextMenuTarget(
         }
     }
     var dialog by remember { mutableStateOf("") }
-    val openEmbedded = LocalOpenEmbeddedApplication.current
-    val closePanel = LocalClosePanelForExternalApp.current
+    val panelActions = LocalPanelActions.current
+    val openEmbedded = panelActions.openEmbeddedApplication
+    val closePanel = panelActions.closePanelForExternalApp
     val targets by produceState(AppMenuTargets(), context, packageName, expanded, dialog == "uninstall", openEmbedded != null) {
         value = AppMenuTargets()
         if ((expanded || dialog == "uninstall") && packageName.isNotBlank()) value = withContext(Dispatchers.IO) {
@@ -111,78 +118,93 @@ internal fun AppContextMenuTarget(
     val embeddedComponent = targets.embedded
     val applicationInfo = targets.info
     var rename by remember(label) { mutableStateOf(label) }
-    fun failed() { Toast.makeText(context, "布局已锁定或目标已失效", Toast.LENGTH_SHORT).show() }
-    fun mutateCard(transform: (ComponentItem) -> ComponentItem): Boolean {
-        val repo = repository ?: return false
-        val state = repo.state.value
-        val pageIndex = state.pages.indexOfFirst { it.id == env?.pageId }
-        if (state.advancedConfig.layoutLocked || pageIndex < 0 || card == null || state.pages[pageIndex].components.findComponent(card.id) == null) return false
-        repo.updateComponent(pageIndex, card.id, transform)
-        return true
-    }
-    fun mutateLegacy(transform: (QuickActionItem) -> QuickActionItem): Boolean {
-        val repo = repository ?: return false
-        val state = repo.state.value
-        val pageIndex = state.pages.indexOfFirst { it.id == env?.pageId }
-        val parent = state.pages.getOrNull(pageIndex)?.components?.findComponent(env?.item?.id.orEmpty()) ?: return false
-        if (state.advancedConfig.layoutLocked || legacyAction == null || parent.containerActions.none { it.id == legacyAction.id } != false) return false
-        repo.updateComponent(pageIndex, parent.id) { it.copy(containerActions = it.containerActions.map { action ->
-            if (action.id == legacyAction.id) transform(action) else action
-        }) }
-        return true
-    }
+    fun failed() { Toast.makeText(context, "更改未保存，请重试", Toast.LENGTH_SHORT).show() }
+    fun mutateCard(transform: (ComponentItem) -> ComponentItem): Boolean =
+        mutateAppMenuCard(actions, env?.pageId, card, transform)
+    fun mutateLegacy(transform: (QuickActionItem) -> QuickActionItem): Boolean =
+        mutateAppMenuLegacy(actions, env?.pageId, env?.item?.id.orEmpty(), legacyAction, transform)
     Box(modifier.semantics(mergeDescendants = true) {
         contentDescription = label
         if (effectiveEnabled) onLongClick(label = "打开应用或快捷方式菜单") { expanded = true; true }
     }.cardLongPressToEdit(packageName to label, effectiveEnabled && (folderInteraction == null || locked)) { expanded = true }
         .clickable(enabled = effectiveEnabled, onClick = onClick)) {
         content()
-        DropdownMenu(expanded = expanded && effectiveEnabled,
+        PanelDropdownMenu(
+            expanded = expanded && effectiveEnabled,
             properties = PopupProperties(focusable = !heldMenu),
-            onDismissRequest = { expanded = false; heldMenu = false; openModes = false }) {
-            com.example.globalminusone.service.Android12WindowKeyGuard()
+            onDismissRequest = { expanded = false; heldMenu = false; openModes = false }
+        ) {
+            com.example.globalminusone.ui.Android12WindowKeyGuard()
+            val menuPalette = checkNotNull(LocalPanelMenuPalette.current)
 
             if (openModes) {
-                DropdownMenuItem(text = { Text("‹ 应用菜单") }, onClick = { openModes = false })
-                DropdownMenuItem(text = { Text("正常打开") }, onClick = {
+                PanelMenuItem(text = { Text("‹ 应用菜单") }, onClick = { openModes = false })
+                PanelMenuItem(text = { Text("正常打开") }, onClick = {
                     expanded = false; openModes = false
                     if (card?.type == ComponentType.APP_ICON && card.appLaunchMode == AppLaunchMode.FLOATING) {
                         com.example.globalminusone.system.AppAndIntentLauncher.launchApp(context, packageName)
-                        if (liveState?.advancedConfig?.autoCloseOnWidgetClick == true) closePanel?.invoke()
+                        if (liveState?.autoCloseOnWidgetClick == true) closePanel?.invoke()
                     } else onClick()
                 })
                 if (embeddedComponent != null && openEmbedded != null)
-                    DropdownMenuItem(text = { Text("面板小窗") }, onClick = {
+                    PanelMenuItem(text = { Text("面板小窗") }, onClick = {
                         expanded = false; openModes = false
                         openEmbedded(EmbeddedApplicationTarget(embeddedComponent, label))
                     })
             } else {
-            DropdownMenuItem(text = { Text(if (packageName.isNotBlank()) "打开方式 ›" else "正常打开") }, onClick = {
+            val defaultOpenLabel = when {
+                packageName.isNotBlank() -> "打开方式 ›"
+                isPopOutLauncherIcon -> "展开弹窗"
+                else -> "正常打开"
+            }
+            PanelMenuItem(text = { Text(defaultOpenLabel) }, onClick = {
                 if (packageName.isNotBlank()) openModes = true else { expanded = false; onClick() }
             })
             if (embeddedComponent != null && openEmbedded != null) {
-                DropdownMenuItem(text = { Text("面板小窗") }, onClick = {
+                PanelMenuItem(text = { Text("面板小窗") }, onClick = {
                     expanded = false
                     openEmbedded(EmbeddedApplicationTarget(embeddedComponent, label))
                 })
             }
-            if (repository != null) {
+            if (actions != null) {
                 HorizontalDivider()
-                DropdownMenuItem(text = { Text("编辑布局") }, enabled = editable,
+                PanelMenuItem(text = { Text("编辑布局") }, enabled = editable,
                     onClick = {
                         expanded = false
-                        val current = repository.state.value
+                        val current = actions.currentLayout
                         val target = current.pages.firstOrNull { it.id == env?.pageId }?.components?.findComponent(env?.item?.id.orEmpty())
-                        if (target != null && !current.advancedConfig.layoutLocked) {
-                            if (folderEdit != null) folderEdit() else repository.setEditMode(true)
-                            repository.selectComponent(target.id)
+                        if (target != null && !current.layoutLocked) {
+                            if (folderEdit != null) folderEdit() else actions.setEditMode(true)
+                            actions.selectComponent(target.id)
                         } else failed()
                     })
-                if (onEdit != null) DropdownMenuItem(text = { Text(if (legacyAction != null) "编辑启动动作" else editLabel) },
+                if (onEdit != null) PanelMenuItem(text = { Text(if (legacyAction != null) "编辑启动动作" else editLabel) },
                     enabled = !locked, onClick = { expanded = false; onEdit() })
-                DropdownMenuItem(text = { Text("重命名") }, enabled = editable,
+                if (card != null && card.type in POPOUT_CAPABLE_CARD_TYPES) {
+                    PanelMenuItem(
+                        text = { Text("弹窗尺寸与样式…") },
+                        enabled = editable,
+                        onClick = {
+                            expanded = false
+                            dialog = "pod-style"
+                        }
+                    )
+                    val nextMode = if (isSingleIconLauncherItem(card)) {
+                        LauncherCardPresentationMode.INLINE_CARD
+                    } else {
+                        LauncherCardPresentationMode.POPUP_ICON
+                    }
+                    PanelMenuItem(
+                        text = { Text("切换为${nextMode.label}") },
+                        enabled = editable,
+                        onClick = {
+                            if (mutateCard { withCardPresentationMode(it, nextMode) }) expanded = false else failed()
+                        }
+                    )
+                }
+                PanelMenuItem(text = { Text("重命名") }, enabled = editable,
                     onClick = { expanded = false; rename = label; dialog = "rename" })
-                DropdownMenuItem(text = { Text(if (legacyAction == null) "更换图标" else "选择内置图标") }, enabled = editable,
+                PanelMenuItem(text = { Text(if (legacyAction == null) "更换图标" else "选择内置图标") }, enabled = editable,
                     onClick = {
                         expanded = false
                         when {
@@ -191,38 +213,36 @@ internal fun AppContextMenuTarget(
                             packageName.isNotBlank() -> { folderReturn?.clear(); PanelFileBrowser.requestAppIcon(context, packageName) }
                         }
                     })
-                DropdownMenuItem(text = { Text("恢复默认图标") }, enabled = editable, onClick = {
-                    expanded = false
+                PanelMenuItem(text = { Text("恢复默认图标") }, enabled = editable, onClick = {
                     val saved = when {
                         legacyAction != null -> mutateLegacy { it.copy(iconName = "bolt") }
                         card != null -> mutateCard { it.copy(iconUri = "") }
-                        else -> repository.updateAppAppearance(packageName, iconUri = "")
+                        else -> actions.updateAppAppearance(packageName, iconUri = "")
                     }
-                    if (!saved) failed()
+                    if (saved) expanded = false else failed()
                 })
                 if (card == null && legacyAction == null && packageName.isNotBlank()) {
-                    DropdownMenuItem(text = { Text("恢复应用原名") }, enabled = editable, onClick = {
-                        expanded = false
-                        if (!repository.updateAppAppearance(packageName, displayName = "")) failed()
+                    PanelMenuItem(text = { Text("恢复应用原名") }, enabled = editable, onClick = {
+                        if (actions.updateAppAppearance(packageName, displayName = "")) expanded = false else failed()
                     })
                 }
                 HorizontalDivider()
-                DropdownMenuItem(text = { Text(if (card != null) "复制到页面 / 容器" else "添加到页面 / 容器") },
+                PanelMenuItem(text = { Text(if (card != null) "复制到页面 / 容器" else "添加到页面 / 容器") },
                     enabled = editable, onClick = { expanded = false; dialog = "copy" })
-                if (card != null) DropdownMenuItem(text = { Text("移动到页面 / 容器") }, enabled = editable,
+                if (card != null) PanelMenuItem(text = { Text("移动到页面 / 容器") }, enabled = editable,
                     onClick = { expanded = false; dialog = "move" })
                 if (card != null || legacyAction != null) {
                     HorizontalDivider()
-                    DropdownMenuItem(text = { Text("移除此卡片…", color = MaterialTheme.colorScheme.error) }, enabled = editable,
+                    PanelMenuItem(text = { Text("移除此卡片…", color = menuPalette.danger) }, enabled = editable,
                         onClick = { expanded = false; dialog = "remove" })
                 }
             } else if (onEdit != null) {
-                DropdownMenuItem(text = { Text(if (legacyAction != null) "编辑启动动作" else editLabel) },
+                PanelMenuItem(text = { Text(if (legacyAction != null) "编辑启动动作" else editLabel) },
                     enabled = !locked, onClick = { expanded = false; onEdit() })
             }
             if (packageName.isNotBlank()) {
                 HorizontalDivider()
-                DropdownMenuItem(text = { Text("应用详情") }, onClick = {
+                PanelMenuItem(text = { Text("应用详情") }, onClick = {
                     expanded = false
                     try { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
                     catch (_: Exception) { Toast.makeText(context, "无法打开应用详情", Toast.LENGTH_SHORT).show() }
@@ -230,7 +250,7 @@ internal fun AppContextMenuTarget(
             }
             if (applicationInfo != null && packageName != context.packageName &&
                 applicationInfo.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) == 0)
-                DropdownMenuItem(text = { Text("卸载应用", color = MaterialTheme.colorScheme.error) }, onClick = {
+                PanelMenuItem(text = { Text("卸载应用", color = menuPalette.danger) }, onClick = {
                     expanded = false; dialog = "uninstall"
                 })
             }
@@ -258,42 +278,58 @@ internal fun AppContextMenuTarget(
         val saved = when {
             legacyAction != null -> mutateLegacy { it.copy(title = rename.trim()) }
             card != null -> mutateCard { it.copy(title = rename.trim()) }
-            else -> repository?.updateAppAppearance(packageName, displayName = rename.trim()) == true
+            else -> actions?.updateAppAppearance(packageName, displayName = rename.trim()) == true
         }
-        if (!saved) failed()
-        dialog = ""
+        if (saved) dialog = "" else failed()
     }) { Text("保存") } }, dismissButton = { TextButton(onClick = { dialog = "" }) { Text("取消") } })
     if (dialog == "legacy-icon") PanelAlertDialog(onDismissRequest = { dialog = "" }, title = { Text("选择内置图标") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             listOf("bolt" to "闪电", "dashboard" to "仪表盘", "settings" to "设置", "explore" to "浏览", "storage" to "存储").forEach { (icon, name) ->
-                TextButton(onClick = { if (!mutateLegacy { it.copy(iconName = "custom:$icon") }) failed(); dialog = "" }) { Text(name) }
+                TextButton(onClick = { if (mutateLegacy { it.copy(iconName = "custom:$icon") }) dialog = "" else failed() }) { Text(name) }
             }
         }
     }, confirmButton = { TextButton(onClick = { dialog = "" }) { Text("取消") } })
     if (dialog == "remove") PanelAlertDialog(onDismissRequest = { dialog = "" }, title = { Text("移除卡片？") },
         text = { Text("从当前位置移除“$label”，不会卸载应用。") }, confirmButton = { TextButton(onClick = {
-            val state = repository?.state?.value
+            val state = actions?.currentLayout
             val index = state?.pages?.indexOfFirst { it.id == env?.pageId } ?: -1
-            if (state == null || state.advancedConfig.layoutLocked || index < 0) failed()
-            else if (legacyAction != null) repository?.removeActionFromContainer(index, env!!.item.id, legacyAction.id)
-            else if (card != null) repository?.removeComponent(index, card.id)
-            dialog = ""
+            if (state == null || state.layoutLocked || index < 0) failed()
+            else if (legacyAction != null) {
+                val parent = state.pages[index].components.findComponent(env!!.item.id)
+                if (parent == null || parent.containerActions.none { it.id == legacyAction.id }) failed()
+                else if (actions?.removeActionFromContainer(index, parent.id, legacyAction.id) == true) dialog = "" else failed()
+            } else if (card != null) {
+                if (actions?.removeComponent(index, card.id) == true) dialog = "" else failed()
+            } else dialog = ""
         }) { Text("移除", color = MaterialTheme.colorScheme.error) } }, dismissButton = { TextButton(onClick = { dialog = "" }) { Text("取消") } })
-    if ((dialog == "copy" || dialog == "move") && repository != null && env != null) {
+    if ((dialog == "copy" || dialog == "move") && actions != null && env != null) {
         val moving = dialog == "move"
-        ComponentDestinationDialog(repository, card?.id, if (moving) "移动到" else "添加 / 复制到", { dialog = "" }) { pageId, containerId ->
-            val saved = if (card != null) repository.transferComponent(env.pageId, card.id, pageId, containerId, copy = !moving)
+        env.destinationPicker.Show(card?.id, if (moving) "移动到" else "添加 / 复制到", { dialog = "" }) { pageId, containerId ->
+            val saved = if (card != null) actions.transferComponent(env.pageId, card.id, pageId, containerId, copy = !moving)
             else {
-                val appearance = repository.state.value.appAppearanceOverrides[packageName]
+                val appearance = actions.currentAppearanceOverrides[packageName]
                 val created = if (legacyAction != null) ComponentItem(type = ComponentType.CUSTOM_SHORTCUT,
                     title = legacyAction.title, packageName = legacyAction.packageName, intentUri = legacyAction.intentUri, iconName = legacyAction.iconName)
                 else ComponentItem(type = ComponentType.APP_ICON, title = appearance?.displayName?.takeIf { it.isNotBlank() } ?: label,
                     packageName = packageName, iconUri = appearance?.iconUri.orEmpty())
-                repository.placeMenuComponent(pageId, containerId, created)
+                actions.placeMenuComponent(pageId, containerId, created)
             }
-            if (!saved) failed() else Toast.makeText(context, "已保存到所选位置", Toast.LENGTH_SHORT).show()
-            dialog = ""
+            if (saved) {
+                Toast.makeText(context, "已保存到所选位置", Toast.LENGTH_SHORT).show()
+                dialog = ""
+            } else failed()
         }
+    }
+    if (dialog == "pod-style" && card != null) {
+        FloatingPodStyleDialog(
+            item = card,
+            onDismiss = { dialog = "" },
+            onSave = { updatedStyle ->
+                val saved = mutateCard { withFloatingPodStyle(it, updatedStyle) }
+                if (saved) dialog = "" else failed()
+                saved
+            }
+        )
     }
 }
 

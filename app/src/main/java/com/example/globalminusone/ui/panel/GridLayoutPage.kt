@@ -1,10 +1,10 @@
 package com.example.globalminusone.ui.panel
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateOffsetAsState
 import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -34,6 +34,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -42,6 +43,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -49,6 +51,9 @@ import androidx.compose.ui.zIndex
 import com.example.globalminusone.data.*
 import com.example.globalminusone.service.WidgetHostManager
 import com.example.globalminusone.system.SystemController
+import com.example.globalminusone.ui.motion.MotionTokens
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 @Composable
@@ -69,18 +74,29 @@ fun GridLayoutPage(
 ) {
     val isEditMode = state.editMode && !state.advancedConfig.layoutLocked
     val density = LocalDensity.current
+    val commandContext = androidx.compose.ui.platform.LocalContext.current
     val palette = LocalPanelPalette.current
     val gestureOwnership = LocalPanelGestureOwnership.current
     val folderReturn = LocalFolderReturnState.current
     val scrollState = rememberScrollState()
     val scrollTarget = rememberPanelScrollTarget(scrollState)
-    val expansion = compactCurtainFractions()
+    val expansion = compactCurtainFractions(page.components)
 
     var activeInteractingId by remember(page.id) { mutableStateOf<String?>(null) }
+    var animateGridSettle by remember(page.id) { mutableStateOf(false) }
     var previewDropCell by remember(page.id) { mutableStateOf<Pair<Int, Int>?>(null) }
     val dropCellRef = remember(page.id) { arrayOfNulls<Pair<Int, Int>>(1) }
     var liveSpanOverride by remember(page.id) { mutableStateOf<Pair<String, Pair<Int, Int>>?>(null) }
 
+    LaunchedEffect(activeInteractingId, isEditMode) {
+        if (activeInteractingId != null) {
+            animateGridSettle = true
+        } else if (animateGridSettle) {
+            val settleMs = state.themeConfig.animationDurationMs.coerceIn(0, 800)
+            kotlinx.coroutines.delay((settleMs * 2L).coerceIn(220L, 650L))
+            animateGridSettle = false
+        }
+    }
     LaunchedEffect(isEditMode) {
         if (!isEditMode) {
             activeInteractingId = null
@@ -212,7 +228,7 @@ fun GridLayoutPage(
                 if (isEditMode) {
                     Spacer(Modifier.height(2.dp))
                     PageGridStyleControlCard(page, metrics,
-                        onColumns = { repository.fitPageGridColumnCount(pageIndex, it, availableWidthDp) },
+                        onColumns = { reportLayoutMutation(commandContext, repository.tryFitPageGridColumnCount(page.id, it, availableWidthDp)) },
                         onChangeSize = { repository.updatePageGridStyle(pageIndex, iconSizeDp = it) },
                         onChangeGap = { repository.updatePageGridStyle(pageIndex, itemGapDp = it) },
                         onChangeRowGap = { repository.updatePageGridStyle(pageIndex, rowGapDp = it) },
@@ -306,17 +322,19 @@ fun GridLayoutPage(
                         page.components.forEach { savedItem ->
                             val placement = placementsById[savedItem.id]
                             if (placement != null) key(savedItem.id) {
-                                val appTarget = isAppContextMenuCardType(savedItem.type)
+                                val appTarget = isAppContextMenuCardType(savedItem.type) ||
+                                    isSingleIconLauncherItem(savedItem)
                                 val canDirectDrag = !isEditMode && !state.advancedConfig.layoutLocked &&
                                     (appTarget || savedItem.type == ComponentType.FOLDER)
                                 val interaction = remember(savedItem.id) { FolderItemInteraction() }
-                                val isBareSingleCellIcon = placement.spanX == 1 && placement.spanY == 1 &&
+                                val isBareSingleCellIcon = placement.spanX == 1 && placement.spanY == 1 && (
                                     savedItem.type in setOf(
                                         ComponentType.APP_ICON,
                                         ComponentType.CUSTOM_SHORTCUT,
                                         ComponentType.STATIC_SHORTCUT,
                                         ComponentType.WEBSITE_LINK,
                                         ComponentType.FOLDER
+                                    ) || isSingleIconLauncherItem(savedItem)
                                     )
                                 CompositionLocalProvider(
                                     LocalContainerGridIconCell provides isBareSingleCellIcon,
@@ -327,6 +345,7 @@ fun GridLayoutPage(
                                         metrics = metrics,
                                         canvasWidthDp = availableWidthDp,
                                         isEditMode = isEditMode,
+                                        animateTransitions = isEditMode || animateGridSettle,
                                         isSelected = selectedId == savedItem.id,
                                         onSelect = {
                                             if (isEditMode && selectedId == savedItem.id && savedItem.type == ComponentType.FOLDER) {
@@ -343,7 +362,9 @@ fun GridLayoutPage(
                                         dragOutsideEdit = canDirectDrag,
                                         onContentTap = if (canDirectDrag) ({
                                             if (appTarget) interaction.tap?.invoke()
-                                            else if (savedItem.type == ComponentType.FOLDER) folderReturn?.openNow(savedItem.id)
+                                            else if (savedItem.type == ComponentType.FOLDER) {
+                                                interaction.tap?.invoke() ?: folderReturn?.openNow(savedItem.id)
+                                            }
                                         }) else null,
                                         onLongPressPreview = if (canDirectDrag && appTarget) ({
                                             interaction.openMenu?.invoke()
@@ -429,7 +450,7 @@ fun GridLayoutPage(
                                         }
                                     ) {
                                         CompositionLocalProvider(
-                                            LocalFolderItemInteraction provides if (canDirectDrag && appTarget) interaction else null
+                                            LocalFolderItemInteraction provides if (canDirectDrag && (appTarget || savedItem.type == ComponentType.FOLDER)) interaction else null
                                         ) {
                                             RenderComponentItem(
                                                 item = savedItem,
@@ -837,6 +858,7 @@ private fun PageGridComponentSlot(
     metrics: PageGridMetrics,
     canvasWidthDp: Float,
     isEditMode: Boolean,
+    animateTransitions: Boolean,
     isSelected: Boolean,
     onSelect: () -> Unit,
     onEnterEditMode: () -> Unit,
@@ -903,55 +925,67 @@ private fun PageGridComponentSlot(
     }
     DisposableEffect(placement.id) { onDispose { if (isDragging) currentViewport?.end() } }
     val dragTargetCoords = remember(placement.id) { arrayOfNulls<LayoutCoordinates>(1) }
+    val motionScope = rememberCoroutineScope()
+    val releaseOffset = remember(placement.id) { Animatable(Offset.Zero, Offset.VectorConverter) }
 
     val animMs = palette.themeConfig.animationDurationMs.coerceIn(0, 800)
+    val latestAnimMs by rememberUpdatedState(animMs)
+    val animateSlot = animateTransitions && animMs > 0
     val targetOffsetPx = Offset(
         with(density) { placement.xDp.dp.toPx() },
         with(density) { placement.yDp.dp.toPx() }
     )
-    val animatedOffsetPx by animateOffsetAsState(
+    val latestTargetOffsetPx by rememberUpdatedState(targetOffsetPx)
+    val targetWidthPx = with(density) { placement.widthDp.dp.toPx() }
+    val targetHeightPx = with(density) { placement.heightDp.dp.toPx() }
+    val animatedOffsetState = if (animateSlot) animateOffsetAsState(
         targetValue = targetOffsetPx,
-        animationSpec = if (isDragging || isResizing || animMs <= 0) snap() else tween(durationMillis = animMs),
+        animationSpec = if (isDragging || isResizing) snap() else MotionTokens.cardOffsetSpring(animMs),
         label = "grid-slot-offset"
-    )
-    val animatedWidthPx by animateFloatAsState(
-        targetValue = with(density) { placement.widthDp.dp.toPx() },
-        animationSpec = if (isResizing || animMs <= 0) snap() else tween(durationMillis = animMs),
+    ) else null
+    val animatedWidthState = if (animateSlot) animateFloatAsState(
+        targetValue = targetWidthPx,
+        animationSpec = if (isResizing) snap() else MotionTokens.cardSettleSpring(animMs),
         label = "grid-slot-width"
-    )
-    val animatedHeightPx by animateFloatAsState(
-        targetValue = with(density) { placement.heightDp.dp.toPx() },
-        animationSpec = if (isResizing || animMs <= 0) snap() else tween(durationMillis = animMs),
+    ) else null
+    val animatedHeightState = if (animateSlot) animateFloatAsState(
+        targetValue = targetHeightPx,
+        animationSpec = if (isResizing) snap() else MotionTokens.cardSettleSpring(animMs),
         label = "grid-slot-height"
-    )
+    ) else null
 
     val maxCanvasXPx = with(density) { (canvasWidthDp - placement.widthDp).coerceAtLeast(0f).dp.toPx() }
-    val drawnOffsetPx = if (isDragging) {
-        Offset(
-            (dragOriginPx.x + dragDeltaPx.x).coerceIn(0f, maxCanvasXPx),
-            (dragOriginPx.y + dragDeltaPx.y + ((currentViewport?.consumedScroll ?: 0f) - dragScrollStart)).coerceAtLeast(0f)
-        )
-    } else {
-        animatedOffsetPx
-    }
 
     if (isDragging) {
-        Box(
-            modifier = Modifier
-                .offset { IntOffset(targetOffsetPx.x.roundToInt(), targetOffsetPx.y.roundToInt()) }
-                .size(with(density) { placement.widthDp.dp }, with(density) { placement.heightDp.dp })
-                .background(palette.accent.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
-                .border(2.dp, palette.accent.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
+        CardDropPlaceholder(
+            offsetProvider = { IntOffset(targetOffsetPx.x.roundToInt(), targetOffsetPx.y.roundToInt()) },
+            widthPx = { targetWidthPx.roundToInt() },
+            heightPx = { targetHeightPx.roundToInt() },
+            accentColor = palette.accent,
+            fillAlpha = 0.12f
         )
     }
 
     Box(
         modifier = Modifier
-            .offset { IntOffset(drawnOffsetPx.x.roundToInt(), drawnOffsetPx.y.roundToInt()) }
-            .size(
-                width = with(density) { animatedWidthPx.toDp() },
-                height = with(density) { animatedHeightPx.toDp() }
-            )
+            .offset {
+                val offset = if (isDragging) {
+                    Offset(
+                        (dragOriginPx.x + dragDeltaPx.x).coerceIn(0f, maxCanvasXPx),
+                        (dragOriginPx.y + dragDeltaPx.y + ((currentViewport?.consumedScroll ?: 0f) - dragScrollStart)).coerceAtLeast(0f)
+                    )
+                } else {
+                    (animatedOffsetState?.value ?: targetOffsetPx) + releaseOffset.value
+                }
+                IntOffset(offset.x.roundToInt(), offset.y.roundToInt())
+            }
+            .layout { measurable, _ ->
+                // Read animated bounds in layout phase so size animations never recompose children.
+                val w = (animatedWidthState?.value ?: targetWidthPx).roundToInt().coerceAtLeast(1)
+                val h = (animatedHeightState?.value ?: targetHeightPx).roundToInt().coerceAtLeast(1)
+                val placeable = measurable.measure(Constraints.fixed(w, h))
+                layout(w, h) { placeable.placeRelative(0, 0) }
+            }
             .zIndex(if (isDragging || isResizing) 3f else if (isSelected) 1.5f else 0f)
             .graphicsLayer {
                 rotationZ = placement.item.rotationDeg.toFloat()
@@ -959,30 +993,17 @@ private fun PageGridComponentSlot(
                 shape = RoundedCornerShape(10.dp)
             }
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .ownPanelScrollGestures(
-                    enabled = !isEditMode && placement.item.type.ownsPanelScrolling(),
-                    lockFromDown = com.example.globalminusone.data.isSliderBarType(placement.item.type),
-                    axis = panelScrollAxisForComponent(placement.item, placement.widthDp, placement.heightDp)
-                )
-                .cardLongPressToEdit(
-                    key = placement.id,
-                    enabled = !dragEnabled && !layoutLocked &&
-                        placement.item.type !in setOf(
-                            ComponentType.APP_ICON,
-                            ComponentType.APP_DRAWER_CARD,
-                            ComponentType.RECENT_APPS_CARD,
-                            ComponentType.CONTAINER_BOX,
-                            ComponentType.FOLDER
-                        )
-                ) {
-                    currentOnEnterEditMode()
-                }
-        ) {
-            content()
-        }
+        CardSlotBodyLayer(
+            item = placement.item,
+            widthDp = placement.widthDp,
+            heightDp = placement.heightDp,
+            isEditMode = isEditMode,
+            dragEnabled = dragEnabled,
+            layoutLocked = layoutLocked,
+            allowCardLongPress = true,
+            onEnterEditMode = { currentOnEnterEditMode() },
+            content = content
+        )
 
         if (dragEnabled) {
             Box(
@@ -990,16 +1011,9 @@ private fun PageGridComponentSlot(
                     .then(if (effectiveEditMode) cardEditDragTarget(placement.item) else Modifier.fillMaxSize())
                     .onGloballyPositioned { dragTargetCoords[0] = it }
                     .pointerInput(placement.id, onStationaryLongPress != null, onLongPressPreview != null) {
-                        val screen = IntArray(2)
-                        val window = IntArray(2)
                         detectStationaryDragGestures(
                             ownership = holdOwnership,
-                            positionInStableSpace = { point ->
-                                dragHostView.getLocationOnScreen(screen)
-                                dragHostView.getLocationInWindow(window)
-                                val inWindow = dragTargetCoords[0]?.takeIf { it.isAttached }?.localToWindow(point) ?: point
-                                inWindow + Offset((screen[0] - window[0]).toFloat(), (screen[1] - window[1]).toFloat())
-                            },
+                            positionInStableSpaceFactory = stableScreenPositionFactory(dragHostView) { dragTargetCoords[0] },
                             onTap = {
                                 if (currentEditMode) currentOnSelect()
                                 else currentOnContentTap?.invoke()
@@ -1015,6 +1029,7 @@ private fun PageGridComponentSlot(
                                 if (!currentEditMode && !currentDragOutsideEdit) return@detectStationaryDragGestures
                                 if (currentEditMode) currentOnSelect()
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                motionScope.launch(start = CoroutineStart.UNDISPATCHED) { releaseOffset.snapTo(Offset.Zero) }
                                 isDragging = true
                                 dragOriginPx = Offset(
                                     with(density) { currentPlacement.xDp.dp.toPx() },
@@ -1028,14 +1043,24 @@ private fun PageGridComponentSlot(
                                 currentOnStartReorder()
                             },
                             onDragEnd = {
+                                val fingerOffset = Offset(
+                                    (dragOriginPx.x + dragDeltaPx.x).coerceIn(0f, maxCanvasXPx),
+                                    (dragOriginPx.y + dragDeltaPx.y + ((currentViewport?.consumedScroll ?: 0f) - dragScrollStart)).coerceAtLeast(0f)
+                                )
                                 if (isDragging) {
-                                    val curX = (dragOriginPx.x + dragDeltaPx.x).coerceAtLeast(0f)
-                                    val curY = (dragOriginPx.y + dragDeltaPx.y +
-                                        ((currentViewport?.consumedScroll ?: 0f) - dragScrollStart)).coerceAtLeast(0f)
                                     currentOnDragPreviewDp(
-                                        with(density) { curX.toDp().value },
-                                        with(density) { curY.toDp().value }
+                                        with(density) { fingerOffset.x.toDp().value },
+                                        with(density) { fingerOffset.y.toDp().value }
                                     )
+                                }
+                                val releasedFrom = fingerOffset - latestTargetOffsetPx
+                                motionScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                                    if (latestAnimMs <= 0) {
+                                        releaseOffset.snapTo(Offset.Zero)
+                                    } else {
+                                        releaseOffset.snapTo(releasedFrom)
+                                        releaseOffset.animateTo(Offset.Zero, MotionTokens.cardOffsetSpring(latestAnimMs))
+                                    }
                                 }
                                 currentViewport?.end()
                                 isDragging = false
@@ -1043,6 +1068,19 @@ private fun PageGridComponentSlot(
                                 currentOnFinishReorder(true)
                             },
                             onDragCancel = {
+                                val fingerOffset = Offset(
+                                    (dragOriginPx.x + dragDeltaPx.x).coerceIn(0f, maxCanvasXPx),
+                                    (dragOriginPx.y + dragDeltaPx.y + ((currentViewport?.consumedScroll ?: 0f) - dragScrollStart)).coerceAtLeast(0f)
+                                )
+                                val releasedFrom = fingerOffset - latestTargetOffsetPx
+                                motionScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                                    if (latestAnimMs <= 0) {
+                                        releaseOffset.snapTo(Offset.Zero)
+                                    } else {
+                                        releaseOffset.snapTo(releasedFrom)
+                                        releaseOffset.animateTo(Offset.Zero, MotionTokens.cardOffsetSpring(latestAnimMs))
+                                    }
+                                }
                                 currentViewport?.end()
                                 isDragging = false
                                 dragDeltaPx = Offset.Zero

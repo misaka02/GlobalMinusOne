@@ -154,9 +154,15 @@ fun StatBatteryBarComponent(orientation: ComponentOrientation = ComponentOrienta
                 maxOf(mainSize.height.toFloat(), with(density) { iconSize.toPx() }) +
                     with(density) { 2.dp.toPx() } + captionSize.height <= heightPx
         } ?: fonts.last()
+        val batteryScroll = rememberScrollState()
+        val canScrollBattery = !LocalIsEditMode.current && (batteryScroll.canScrollForward || batteryScroll.canScrollBackward)
         Column(Modifier.align(Alignment.Center).fillMaxWidth().heightIn(max = maxHeight)
-            .ownPanelScrollGestures(!LocalIsEditMode.current)
-            .verticalScroll(rememberScrollState(), enabled = !LocalIsEditMode.current),
+            .ownPanelScrollGestures(
+                enabled = canScrollBattery,
+                canScrollVertically = { dy -> if (dy < 0f) batteryScroll.canScrollForward else batteryScroll.canScrollBackward },
+                axis = PanelGestureAxis.Vertical
+            )
+            .verticalScroll(batteryScroll, enabled = canScrollBattery, flingBehavior = rememberPanelFlingBehavior()),
             horizontalAlignment = Alignment.CenterHorizontally) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                 Icon(if (status.isCharging) Icons.Rounded.BatteryChargingFull else Icons.Rounded.BatteryStd,
@@ -188,9 +194,12 @@ fun StatBatteryDetailComponent() {
     )
     BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 4.dp)) {
         val columns = (maxWidth.value / (76f * density.fontScale.coerceAtLeast(1f))).toInt().coerceIn(1, 3)
-        Column(Modifier.fillMaxSize().ownPanelScrollGestures(!editing,
+        val canScrollDetail = !editing && (scroll.canScrollForward || scroll.canScrollBackward)
+        Column(Modifier.fillMaxSize().ownPanelScrollGestures(
+            enabled = canScrollDetail,
             canScrollVertically = { dy -> if (dy < 0f) scroll.canScrollForward else scroll.canScrollBackward },
-            axis = PanelGestureAxis.Vertical).verticalScroll(scroll, enabled = !editing),
+            axis = PanelGestureAxis.Vertical
+        ).verticalScroll(scroll, enabled = canScrollDetail, flingBehavior = rememberPanelFlingBehavior()),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             metrics.chunked(columns).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {

@@ -5,7 +5,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.util.Base64
 import java.util.UUID
@@ -101,12 +100,17 @@ internal class LibsuRootTransport private constructor(private val shell: Shell) 
 }
 
 internal fun boundedRootLine(input: InputStream, limit: Int): String {
-    val bytes = ByteArrayOutputStream()
+    var buf = ByteArray(minOf(4096, limit.coerceAtLeast(1)))
+    var len = 0
     while (true) {
         val c = input.read()
         check(c >= 0) { "Root管道提前关闭" }
-        if (c == 10) return bytes.toString("US-ASCII").trimEnd('\r')
-        check(bytes.size() < limit) { "Root协议行超限" }; bytes.write(c)
+        if (c == 10) return String(buf, 0, len, Charsets.US_ASCII).trimEnd('\r')
+        check(len < limit) { "Root协议行超限" }
+        if (len == buf.size) {
+            buf = buf.copyOf(minOf(limit, (buf.size * 2).coerceAtLeast(len + 1)))
+        }
+        buf[len++] = c.toByte()
     }
 }
 

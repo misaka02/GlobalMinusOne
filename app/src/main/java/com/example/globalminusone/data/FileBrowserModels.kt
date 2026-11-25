@@ -1,10 +1,12 @@
 package com.example.globalminusone.data
 
+import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
 import java.io.File
 import java.util.Locale
 
 /** Only bookmarks and display preferences are persisted; file contents never enter app state. */
+@Immutable
 @Serializable
 data class FileBrowserConfig(
     val roots: List<FileBrowserRoot> = emptyList(),
@@ -19,6 +21,7 @@ data class FileBrowserConfig(
     val recent: List<FileBrowserBookmark> = emptyList()
 )
 
+@Immutable
 @Serializable
 data class FileBrowserBookmark(
     val title: String, val rootUri: String? = null, val documentId: String? = null,
@@ -26,6 +29,7 @@ data class FileBrowserBookmark(
     val directory: Boolean = true, val mimeType: String = "application/octet-stream", val rootAccess: Boolean = false
 )
 
+@Immutable
 @Serializable
 data class FileBrowserRoot(val uri: String, val title: String)
 

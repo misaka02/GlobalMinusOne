@@ -59,21 +59,27 @@ internal fun EditContainerActionDialog(repository: MinusOneRepository, page: Int
             }
         }
     }, confirmButton = { TextButton(enabled = existing != null && title.isNotBlank() && uri.isNotBlank(), onClick = {
-        val current = mutableContainerTarget(repository.state.value, page, containerId)
-        if (current?.containerActions?.none { it.id == action.id } != false) {
-            Toast.makeText(context, "子项已删除或布局已锁定", Toast.LENGTH_SHORT).show()
-            return@TextButton
+        val result = saveLegacyContainerAction(repository, page, containerId, action.id) {
+            val content = it.copy(title = title.trim(), intentUri = uri.trim())
+            when {
+                resetGeometry -> content.copy(xDp = null, yDp = null, wDp = null, hDp = null)
+                geometryEdited -> commitContainerActionGeometry(content, x, y, w, h)
+                else -> content
+            }
         }
-        repository.updateComponent(page, containerId) { container -> container.copy(containerActions = container.containerActions.map {
-            if (it.id == action.id) {
-                val content = it.copy(title = title.trim(), intentUri = uri.trim())
-                when {
-                    resetGeometry -> content.copy(xDp = null, yDp = null, wDp = null, hDp = null)
-                    geometryEdited -> commitContainerActionGeometry(content, x, y, w, h)
-                    else -> content
-                }
-            } else it
-        }) }
-        onDismiss()
+        when (result) {
+            ConfirmationWriteResult.APPLIED -> onDismiss()
+            ConfirmationWriteResult.TARGET_CHANGED -> Toast.makeText(context, "子项已删除或布局已锁定", Toast.LENGTH_SHORT).show()
+            ConfirmationWriteResult.WRITE_REJECTED -> Toast.makeText(context, "更改未应用，请重试", Toast.LENGTH_SHORT).show()
+        }
     }) { Text("保存") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
+}
+
+/** Resolve again at save time; rejected writes leave the caller's draft intact for retry. */
+internal fun saveLegacyContainerAction(repository: MinusOneRepository, page: Int, containerId: String,
+    actionId: String, transform: (QuickActionItem) -> QuickActionItem): ConfirmationWriteResult {
+    val current = mutableContainerTarget(repository.state.value, page, containerId)
+    if (current == null || current.containerActions.none { it.id == actionId }) return ConfirmationWriteResult.TARGET_CHANGED
+    val accepted = repository.tryUpdateContainerAction(page, containerId, actionId, transform)
+    return if (accepted) ConfirmationWriteResult.APPLIED else ConfirmationWriteResult.WRITE_REJECTED
 }

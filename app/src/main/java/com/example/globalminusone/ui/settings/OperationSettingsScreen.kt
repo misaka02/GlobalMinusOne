@@ -48,6 +48,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.example.globalminusone.ui.AppIcons as Icons
@@ -116,6 +117,8 @@ import com.example.globalminusone.service.OverlayService
 @Composable
 internal fun OperationSettingsScreen(
     repository: MinusOneRepository,
+    initialExpandedGroup: String = "",
+    jumpNonce: Long = 0L,
     onBack: () -> Unit,
     onNavigateToSBSettings: () -> Unit
 ) {
@@ -127,7 +130,23 @@ internal fun OperationSettingsScreen(
     var showShowSideDialog by remember { mutableStateOf(false) }
     var gestureActionTarget by remember { mutableStateOf<String?>(null) }
 
-    var expandedGroup by rememberSaveable { mutableStateOf("触发") }
+    var expandedGroup by rememberSaveable { mutableStateOf(initialExpandedGroup.ifBlank { "触发" }) }
+    val listState = rememberLazyListState()
+    LaunchedEffect(initialExpandedGroup, jumpNonce) {
+        if (initialExpandedGroup.isNotBlank()) {
+            expandedGroup = initialExpandedGroup
+            val idx = when (initialExpandedGroup) {
+                "触发" -> 1
+                "反馈与避让" -> 2
+                "位置" -> 3
+                "区域" -> 4
+                "手势条动作" -> 5
+                "悬浮球" -> 6
+                else -> null
+            }
+            if (idx != null) listState.animateScrollToItem(idx)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -137,6 +156,7 @@ internal fun OperationSettingsScreen(
         SubPageTopBar(title = "触发设置", onBack = onBack)
 
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background),

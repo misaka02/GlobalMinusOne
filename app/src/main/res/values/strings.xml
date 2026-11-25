@@ -1,6 +1,10 @@
 <resources>
     <string name="app_name">全局负一屏</string>
     <string name="accessibility_service_label">全局负一屏增强服务</string>
-    <string name="accessibility_service_description">用于感知当前前台应用以实现全屏游戏防误触自动避让，并提供一键锁屏、系统截屏、展开通知栏等全局快捷动作。本服务不收集任何个人隐私数据。</string>
+    <string name="accessibility_service_description">用于感知当前前台应用以实现全屏游戏防误触自动避让，提供一键锁屏、系统与区域截屏、全局识屏提取文字等主动触发的全局快捷动作。界面文字仅在您主动触发“全局识屏”时于本地读取，不收集或后台上传任何隐私数据。</string>
     <string name="tile_label">全局负一屏</string>
+    <string name="shortcut_settings_short">应用设置</string>
+    <string name="shortcut_settings_long">打开全局负一屏设置</string>
+    <string name="shortcut_ocr_short">OCR 与识屏</string>
+    <string name="shortcut_ocr_long">打开 OCR 与识屏设置</string>
 </resources>

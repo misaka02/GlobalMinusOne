@@ -24,7 +24,7 @@ internal fun FolderModalScope(onDismiss: () -> Unit, content: @Composable () -> 
     CompositionLocalProvider(LocalPanelModalHost provides host) {
         Box(Modifier.fillMaxSize()) {
             content()
-            host.entry?.content?.invoke()
+            AnimatedPanelModalHostContent(host.entry)
         }
     }
 }

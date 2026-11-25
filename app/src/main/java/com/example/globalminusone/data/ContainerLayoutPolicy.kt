@@ -17,7 +17,8 @@ fun isContainerGridIcon(type: ComponentType): Boolean = type in setOf(
     ComponentType.APP_ICON, ComponentType.CUSTOM_SHORTCUT, ComponentType.STATIC_SHORTCUT, ComponentType.FILE_SHORTCUT, ComponentType.FOLDER)
 
 fun isContainerGridIconItem(item: ComponentItem): Boolean = isContainerGridIcon(item.type) ||
-    (item.type == ComponentType.WEBSITE_LINK && item.gridSpanX == 1 && item.gridSpanY == 1)
+    (item.type == ComponentType.WEBSITE_LINK && item.gridSpanX == 1 && item.gridSpanY == 1) ||
+    isSingleIconLauncherItem(item)
 
 /** Zero leaves legacy automatic/derived icon sizing intact. */
 fun containerIconSizeDp(item: ComponentItem): Int? = item.containerIconSizeDp.takeIf { it > 0 }?.coerceIn(1, 192)
@@ -78,7 +79,7 @@ fun legacyContainerActionGridHeightDp(item: ComponentItem, fontScale: Float = 1f
     }
     val gap = if (item.containerLayout == ContainerLayoutType.GRID) containerRowGapDp(item)
         else item.containerItemGapDp.coerceIn(MIN_GRID_GAP_DP, MAX_GRID_GAP_DP)
-    val trailingGaps = if (item.containerLayout == ContainerLayoutType.GRID || (item.containerCompact && item.autoHeight)) (rows - 1).coerceAtLeast(0) else rows
+    val trailingGaps = if (item.containerLayout == ContainerLayoutType.GRID || item.containerCompact) (rows - 1).coerceAtLeast(0) else rows
     val tileHeight = legacyContainerActionTileHeightDp(item, fontScale)
     return (rows * tileHeight + trailingGaps * gap).coerceAtLeast(tileHeight)
 }
@@ -119,10 +120,15 @@ fun componentDisplayHeightDp(
         val content = containerContentHeightDp(item, width, columns, configuredHeightUnitDp, fontScale, depth, compactExpansion)
         val groups = (if (item.containerActions.isNotEmpty()) 1 else 0) +
             (if (item.containerComponents.isNotEmpty()) 1 else 0)
-        val body = if (groups == 0) 18f * validFontScale(fontScale) else content
-        // Reserve the add control even when locked: unlocking must not clip its touch target.
-        val viewport = (body + COMPACT_CONTAINER_GAP_DP + compactContainerAddRowHeightDp(fontScale) +
-            2f * COMPACT_CONTAINER_PADDING_DP).coerceAtMost(CONTAINER_VIEWPORT_MAX_DP)
+        // Non-empty collapsible containers place '+' inside the header so zero bottom add-bar space is wasted.
+        // Empty containers keep a single compact empty-state touch target inside the curtain body.
+        val viewport = if (groups == 0) {
+            (compactContainerAddRowHeightDp(fontScale) + 2f * COMPACT_CONTAINER_PADDING_DP)
+                .coerceAtMost(CONTAINER_VIEWPORT_MAX_DP)
+        } else {
+            (content + 2f * COMPACT_CONTAINER_PADDING_DP)
+                .coerceAtMost(CONTAINER_VIEWPORT_MAX_DP)
+        }
         return collapsed + (COMPACT_CONTAINER_DIVIDER_DP + viewport) * fraction
     }
     if (item.autoHeight && item.type == ComponentType.TEXT_LABEL) {
@@ -147,7 +153,9 @@ fun componentDisplayHeightDp(
             .coerceAtLeast(TEXT_LABEL_LINE_HEIGHT_SP * scale)
         return max(savedHeight, header + wrapperPadding + 16f + body)
     }
-    if ((item.type == ComponentType.APP_DRAWER_CARD || item.type == ComponentType.RECENT_APPS_CARD) &&
+    val singleIconLauncher = isSingleIconLauncherItem(item)
+    if (!singleIconLauncher &&
+        (item.type == ComponentType.APP_DRAWER_CARD || item.type == ComponentType.APP_KEYBOARD_LAUNCHER || item.type == ComponentType.RECENT_APPS_CARD) &&
         (item.autoHeight || item.h !in 1..120)) {
         // Old configurations may contain enormous drawer heights. Valid manual
         // dimensions remain authoritative; the surrounding page supplies scrolling.
@@ -160,7 +168,7 @@ fun componentDisplayHeightDp(
         val label = if (!item.showTitle && item.title.isNotBlank()) 20f * fontScale else 0f
         return max(savedHeight, icon + label + header + item.marginTopDp + item.marginBottomDp)
     }
-    if (item.autoHeight && item.type in setOf(ComponentType.APP_ICON, ComponentType.CUSTOM_SHORTCUT, ComponentType.STATIC_SHORTCUT)) {
+    if (item.autoHeight && (item.type in setOf(ComponentType.APP_ICON, ComponentType.CUSTOM_SHORTCUT, ComponentType.STATIC_SHORTCUT) || singleIconLauncher)) {
         val icon = if (item.type == ComponentType.APP_ICON) 36f else 34f
         // Explicit line heights match AppIconComponent/CustomShortcutComponent, even for an empty label.
         val label = 14f * fontScale
@@ -341,4 +349,41 @@ fun nextComponentPlacementY(page: PageConfig, containerId: String?, gridColumns:
             stepY, columns, configuredHeightUnitDp, fontScale)
     } ?: return 0
     return (bottom + 1).coerceIn(0, Int.MAX_VALUE.toLong()).toInt()
+}
+
+/**
+ * Resolves a finite Compose viewport height ceiling for container rendering.
+ * Never returns Float.MAX_VALUE when inside a popup's verticalScroll (unbounded height constraint),
+ * preventing Compose Constraints(maxHeight) overflow crashes on opening folders.
+ */
+fun resolveContainerViewportHeightPx(
+    hasBoundedHeight: Boolean,
+    maxConstraintHeightPx: Float,
+    insideOwnPopup: Boolean,
+    screenHeightPx: Float,
+    maxFallbackPx: Float
+): Float {
+    val safeFallback = maxFallbackPx.takeIf { it.isFinite() && it > 0f } ?: 1440f
+    val popupCap = if (insideOwnPopup) {
+        val safeScreen = screenHeightPx.takeIf { it.isFinite() && it > 0f } ?: safeFallback
+        maxOf(safeFallback, safeScreen.coerceAtMost(safeFallback * 5f))
+    } else {
+        safeFallback
+    }
+    val bounded = if (hasBoundedHeight && maxConstraintHeightPx.isFinite() && maxConstraintHeightPx > 0f) {
+        maxConstraintHeightPx
+    } else {
+        popupCap
+    }
+    return minOf(bounded, popupCap).coerceAtLeast(1f)
+}
+
+/**
+ * Resolves effective animation duration in milliseconds while preserving 0 = snap (off)
+ * and eliminating sluggish artificial 60-130ms floors on fast settings.
+ */
+fun resolveEffectiveAnimationMs(configuredMs: Int, scale: Float = 1f, maxMs: Int = 800): Int {
+    if (configuredMs <= 0) return 0
+    val ceiling = maxMs.coerceAtLeast(16)
+    return kotlin.math.round(configuredMs * scale).toInt().coerceIn(16, ceiling)
 }

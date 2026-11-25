@@ -1,11 +1,13 @@
 package com.example.globalminusone.data
 
+import androidx.compose.runtime.Immutable
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 /** Sentinel value meaning "always span all currently available columns on this grid". */
 const val GRID_SPAN_FULL_ROW = 99
 
+@Immutable
 data class PageGridMetrics(
     val availableWidthDp: Float,
     val itemSizeDp: Int,
@@ -17,6 +19,7 @@ data class PageGridMetrics(
     val rowGapDp: Int = itemGapDp
 )
 
+@Immutable
 data class PageGridPlacement(
     val id: String,
     val item: ComponentItem,
@@ -30,6 +33,7 @@ data class PageGridPlacement(
     val heightDp: Float
 )
 
+@Immutable
 data class PageGridLayoutResult(
     val metrics: PageGridMetrics,
     val placements: List<PageGridPlacement>,
@@ -77,6 +81,7 @@ fun derivePageGridMetrics(
     )
 }
 
+@Immutable
 data class FittedPageGridStyle(val columnCount: Int, val itemSizeDp: Int, val itemGapDp: Int, val iconSizeDp: Int)
 
 /** Choosing a column count fits both spacing and actual icon dp once, using the current width. */
@@ -116,7 +121,8 @@ fun defaultPageGridSpan(type: ComponentType, totalColumns: Int): Pair<Int, Int> 
         ComponentType.HITOKOTO_CARD,
         ComponentType.TEXT_LABEL -> cols to 1
 
-        ComponentType.APP_DRAWER_CARD -> cols to 4
+        ComponentType.APP_DRAWER_CARD,
+        ComponentType.APP_KEYBOARD_LAUNCHER -> cols to 4
 
         ComponentType.APP_WIDGET,
         ComponentType.CONTAINER_BOX,
@@ -139,8 +145,12 @@ fun resolvePageGridSpan(
     compactExpansion: Map<String, Float> = emptyMap()
 ): Pair<Int, Int> {
     val cols = metrics.columns.coerceIn(1, 12)
-    val (defX, defY) = defaultGridSpanForOrientation(item.type, item.orientation)
-        ?: defaultPageGridSpan(item.type, cols)
+    val (defX, defY) = if (isSingleIconLauncherItem(item)) {
+        1 to 1
+    } else {
+        defaultGridSpanForOrientation(item.type, item.orientation)
+            ?: defaultPageGridSpan(item.type, cols)
+    }
     val spanX = when {
         item.gridSpanX >= GRID_SPAN_FULL_ROW -> cols
         item.gridSpanX > 0 -> item.gridSpanX.coerceIn(1, cols)
@@ -298,14 +308,80 @@ fun arrangePageGridComponents(
     val pitchX = (metrics.cellWidthDp + metrics.itemGapDp).coerceAtLeast(8f)
     val pitchY = (metrics.cellHeightDp + metrics.rowGapDp).coerceAtLeast(8f)
 
+    fun isVariableHeightContainer(item: ComponentItem): Boolean =
+        item.type == ComponentType.CONTAINER_BOX && (item.containerCompact || (item.autoHeight && item.gridSpanY <= 0))
+
+    val itemWidthsDp = FloatArray(components.size)
+    val itemHeightsDp = FloatArray(components.size)
+    val variableFlags = BooleanArray(components.size)
+    components.forEachIndexed { index, item ->
+        val (_, placedRow) = placementCoords[index] ?: (0 to 0)
+        val (spanX, spanY) = spans[index]
+        maxBottomRow = maxOf(maxBottomRow, placedRow + spanY)
+        val wDp = (spanX * metrics.cellWidthDp + (spanX - 1) * metrics.itemGapDp).coerceAtLeast(16f)
+        val isVar = isVariableHeightContainer(item)
+        variableFlags[index] = isVar
+        itemWidthsDp[index] = wDp
+        itemHeightsDp[index] = if (isVar) {
+            componentDisplayHeightDp(
+                item = item,
+                outerWidthDp = wDp,
+                gridColumns = gridColumns,
+                configuredHeightUnitDp = configuredHeightUnitDp,
+                fontScale = fontScale,
+                compactExpansion = compactExpansion
+            ).coerceAtLeast(36f)
+        } else {
+            (spanY * metrics.cellHeightDp + (spanY - 1) * metrics.rowGapDp).coerceAtLeast(16f)
+        }
+    }
+
+    val rowHasRegular = BooleanArray(maxBottomRow.coerceAtLeast(1))
+    val finishingByEndRow = Array(maxBottomRow + 1) { mutableListOf<Int>() }
+    components.forEachIndexed { index, _ ->
+        val (_, placedRow) = placementCoords[index] ?: (0 to 0)
+        val (_, spanY) = spans[index]
+        val endRow = (placedRow + spanY).coerceAtMost(maxBottomRow)
+        finishingByEndRow[endRow].add(index)
+        if (!variableFlags[index]) {
+            for (r in placedRow until endRow) {
+                rowHasRegular[r] = true
+            }
+        }
+    }
+
+    val rowStartY = FloatArray(maxBottomRow + 1)
+    for (r in 0 until maxBottomRow) {
+        val prevY = rowStartY[r]
+        val rowEmpty = r >= occupied.size || occupied[r].none { it }
+        var nextY = if (rowHasRegular[r] || rowEmpty) {
+            prevY + metrics.cellHeightDp + metrics.rowGapDp
+        } else {
+            prevY
+        }
+        var hasFinishingHere = false
+        for (idx in finishingByEndRow[r + 1]) {
+            val (_, startRow) = placementCoords[idx] ?: (0 to 0)
+            val bottomWithGap = rowStartY[startRow] + itemHeightsDp[idx] + metrics.rowGapDp
+            if (bottomWithGap > nextY) nextY = bottomWithGap
+            hasFinishingHere = true
+        }
+        if (!rowHasRegular[r] && !rowEmpty && !hasFinishingHere) {
+            // Intermediate row inside a multi-row span before the item finishes: keep grid rhythm for any later startRow.
+            nextY = maxOf(nextY, prevY + metrics.cellHeightDp + metrics.rowGapDp)
+        }
+        rowStartY[r + 1] = nextY
+    }
+
+    var maxContentBottomDp = 0f
     components.forEachIndexed { index, item ->
         val (placedCol, placedRow) = placementCoords[index] ?: (0 to 0)
         val (spanX, spanY) = spans[index]
-        maxBottomRow = maxOf(maxBottomRow, placedRow + spanY)
         val xDp = placedCol * pitchX
-        val yDp = placedRow * pitchY
-        val widthDp = (spanX * metrics.cellWidthDp + (spanX - 1) * metrics.itemGapDp).coerceAtLeast(16f)
-        val heightDp = (spanY * metrics.cellHeightDp + (spanY - 1) * metrics.rowGapDp).coerceAtLeast(16f)
+        val yDp = rowStartY[placedRow]
+        val widthDp = itemWidthsDp[index]
+        val heightDp = itemHeightsDp[index]
+        maxContentBottomDp = maxOf(maxContentBottomDp, yDp + heightDp)
 
         placements += PageGridPlacement(
             id = item.id,
@@ -324,7 +400,12 @@ fun arrangePageGridComponents(
     val contentHeightDp = if (maxBottomRow <= 0) {
         metrics.cellHeightDp
     } else {
-        (maxBottomRow * metrics.cellHeightDp + (maxBottomRow - 1) * metrics.rowGapDp).coerceAtLeast(metrics.cellHeightDp)
+        val emptyTrailFloor = if (rowHasRegular[maxBottomRow - 1] || occupied.getOrNull(maxBottomRow - 1)?.none { it } == true) {
+            (rowStartY[maxBottomRow] - metrics.rowGapDp).coerceAtLeast(metrics.cellHeightDp)
+        } else {
+            metrics.cellHeightDp
+        }
+        maxOf(metrics.cellHeightDp, maxContentBottomDp, emptyTrailFloor)
     }
 
     return PageGridLayoutResult(

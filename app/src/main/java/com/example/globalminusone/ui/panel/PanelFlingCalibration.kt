@@ -17,6 +17,8 @@ import kotlin.math.abs
  * an input. Only the launch velocity is bounded; drag deltas and native decay stay intact. */
 internal class PanelFlingCalibration(private val clock: () -> Long) {
     private val tracker = VelocityTracker()
+    private var firstTime = Long.MIN_VALUE
+    private var firstY = 0f
     private var lastTime = Long.MIN_VALUE
     private var lastY = 0f
     private var lastMovement = Long.MIN_VALUE
@@ -26,20 +28,31 @@ internal class PanelFlingCalibration(private val clock: () -> Long) {
 
     fun begin(time: Long, screenY: Float) {
         tracker.resetTracking()
+        firstTime = time; firstY = screenY
         lastTime = Long.MIN_VALUE; samples = 0; lastMovement = time
         releaseSpeed = null
         sample(time, screenY)
     }
     fun sample(time: Long, screenY: Float) {
         if (!screenY.isFinite() || time <= lastTime) return
-        if (samples > 0 && abs(screenY - lastY) > .01f) lastMovement = time
-        tracker.addPosition(time, Offset(0f, screenY))
+        val moved = samples == 0 || abs(screenY - lastY) > .01f
+        if (samples > 0 && moved) lastMovement = time
+        // Compose VelocityTracker resets velocity on >=40ms gaps at identical coordinates;
+        // skip stationary points past 35ms and let end()'s 55ms window decide whether fling stays alive.
+        if (moved || time - lastTime < 35L) {
+            tracker.addPosition(time, Offset(0f, screenY))
+        }
         lastTime = time; lastY = screenY; samples++
     }
     fun end(time: Long, screenY: Float) {
         sample(time, screenY)
-        val velocity = if (samples >= 3 && time - lastMovement <= 40) tracker.calculateVelocity().y else 0f
-        releaseSpeed = abs(velocity).takeIf { it.isFinite() } ?: 0f
+        val rawVelocity = if (samples >= 2 && time - lastMovement <= 55) {
+            val tracked = tracker.calculateVelocity().y
+            if (tracked == 0f && samples == 2 && lastTime > firstTime) {
+                (lastY - firstY) / ((lastTime - firstTime) / 1000f)
+            } else tracked
+        } else 0f
+        releaseSpeed = abs(rawVelocity).takeIf { it.isFinite() } ?: 0f
         releasedAt = clock()
     }
     fun cancel() { releaseSpeed = 0f; releasedAt = clock() }
@@ -84,12 +97,12 @@ internal fun Modifier.observePanelReleaseVelocity(calibration: PanelFlingCalibra
     val coordinates = remember { arrayOfNulls<LayoutCoordinates>(1) }
     return onGloballyPositioned { coordinates[0] = it }.pointerInput(view, calibration) {
         val screen = IntArray(2); val window = IntArray(2)
-        fun screenY(point: Offset): Float {
-            view.getLocationOnScreen(screen); view.getLocationInWindow(window)
-            return (coordinates[0]?.takeIf { it.isAttached }?.localToWindow(point)?.y ?: point.y) + screen[1] - window[1]
-        }
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            view.getLocationOnScreen(screen); view.getLocationInWindow(window)
+            val windowOffsetY = (screen[1] - window[1]).toFloat()
+            fun screenY(point: Offset): Float =
+                (coordinates[0]?.takeIf { it.isAttached }?.localToWindow(point)?.y ?: point.y) + windowOffsetY
             calibration.begin(down.uptimeMillis, screenY(down.position))
             var valid = true
             var completed = false

@@ -310,7 +310,7 @@ internal fun SingleChoiceDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            com.example.globalminusone.service.Android12WindowKeyGuard()
+            com.example.globalminusone.ui.Android12WindowKeyGuard()
             Text(text = title, fontWeight = FontWeight.Bold, fontSize = 18.sp) },
         text = {
             LazyColumn {
@@ -356,7 +356,7 @@ internal fun GestureActionChoiceDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            com.example.globalminusone.service.Android12WindowKeyGuard()
+            com.example.globalminusone.ui.Android12WindowKeyGuard()
             Text(text = title, fontWeight = FontWeight.Bold, fontSize = 18.sp) },
         text = {
             LazyColumn {

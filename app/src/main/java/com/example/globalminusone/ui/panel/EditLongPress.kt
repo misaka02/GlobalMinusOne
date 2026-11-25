@@ -85,6 +85,22 @@ internal inline fun <T> withStationaryDragHold(
     }
 }
 
+/** Samples host window-to-screen offset once per gesture instead of per MOVE event. */
+internal fun stableScreenPositionFactory(
+    view: android.view.View,
+    coordinates: () -> LayoutCoordinates?
+): () -> ((Offset) -> Offset) = {
+    val screen = IntArray(2)
+    val window = IntArray(2)
+    view.getLocationOnScreen(screen)
+    view.getLocationInWindow(window)
+    val offset = Offset((screen[0] - window[0]).toFloat(), (screen[1] - window[1]).toFloat())
+    val mapper: (Offset) -> Offset = { point ->
+        (coordinates()?.takeIf { it.isAttached }?.localToWindow(point) ?: point) + offset
+    }
+    mapper
+}
+
 /** Editing starts dragging only after the same stationary hold as entering edit. */
 internal suspend fun PointerInputScope.detectStationaryDragGestures(
     ownership: PanelGestureOwnership,
@@ -96,6 +112,7 @@ internal suspend fun PointerInputScope.detectStationaryDragGestures(
     onLongPressPreview: (() -> Unit)? = null,
     onLongPressCancel: (() -> Unit)? = null,
     positionInStableSpace: ((Offset) -> Offset)? = null,
+    positionInStableSpaceFactory: (() -> ((Offset) -> Offset))? = null,
     onDrag: (PointerInputChange, Offset) -> Unit
 ) {
     awaitEachGesture {
@@ -103,15 +120,16 @@ internal suspend fun PointerInputScope.detectStationaryDragGestures(
         // The same detector owns tap/hold/drag. A sibling tap detector must not consume
         // the DOWN or release while a parent background observer is waiting for a hold.
         withStationaryDragHold(ownership, down.uptimeMillis) { confirmHold ->
+        val stableMapper = positionInStableSpaceFactory?.invoke() ?: positionInStableSpace
         val policy = StationaryHoldPolicy(3.dp.toPx(), 12.dp.toPx())
         var previous = down.position
-        val motion = positionInStableSpace?.let { StableDragMotion(it(down.position)) }
+        val motion = stableMapper?.let { StableDragMotion(it(down.position)) }
         val ended = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
             while (true) {
                 val event = awaitPointerEvent(PointerEventPass.Final)
                 val point = event.changes.firstOrNull { it.id == down.id } ?: return@withTimeoutOrNull true
-                val delta = if (motion != null && positionInStableSpace != null)
-                    motion.sample(positionInStableSpace(point.position)) else point.movementForHold()
+                val delta = if (motion != null && stableMapper != null)
+                    motion.sample(stableMapper(point.position)) else point.movementForHold()
                 previous = point.position
                 if (!point.pressed) {
                     if (policy.observeRelease(delta.x, delta.y, event.changes.size, point.isConsumed)) onTap()
@@ -137,8 +155,8 @@ internal suspend fun PointerInputScope.detectStationaryDragGestures(
                 val event = awaitPointerEvent(PointerEventPass.Main)
                 val point = event.changes.firstOrNull { it.id == down.id }
                 if (point == null || event.changes.count { it.pressed } > 1) break
-                val delta = if (motion != null && positionInStableSpace != null)
-                    motion.sample(positionInStableSpace(point.position)) else point.positionChange()
+                val delta = if (motion != null && stableMapper != null)
+                    motion.sample(stableMapper(point.position)) else point.positionChange()
                 if (!point.pressed) {
                     // Compose represents ACTION_CANCEL as an already-consumed release.
                     if (isSuccessfulDragRelease(point.previousPressed, point.pressed, point.isConsumed)) {

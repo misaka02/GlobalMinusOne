@@ -4,4 +4,7 @@
     <external-path name="shared_files" path="." />
     <files-path name="text_original_recovery" path="text-save-recovery/" />
     <cache-path name="region_screenshots" path="region_screenshots/" />
+    <cache-path name="screen_extracts" path="screen_extracts/" />
+    <cache-path name="ocr_extensions" path="ocr_extensions/" />
+    <files-path name="image_clipboard" path="image_clipboard/" />
 </paths>

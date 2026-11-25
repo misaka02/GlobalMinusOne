@@ -1,7 +1,81 @@
 package com.example.globalminusone.data
 
-fun containerPopupColumns(item: ComponentItem): Int {
+private const val WIDE_CARD_REFERENCE_POPUP_WIDTH_DP = 360f
+private const val POPUP_HORIZONTAL_CHROME_DP = 24f
+private const val WIDE_CARD_REFERENCE_INNER_DP = WIDE_CARD_REFERENCE_POPUP_WIDTH_DP - POPUP_HORIZONTAL_CHROME_DP
+private const val SHRUNK_WIDE_MIN_POPUP_WIDTH_DP = 128f
+
+private fun isExplicitlyShrunkWideChild(
+    child: ComponentItem,
+    configuredColumns: Int,
+    gridColumns: Int
+): Boolean {
+    if (isContainerPopupCompactItem(child)) return false
+    val safeGridCols = gridColumns.coerceIn(8, 64)
+    if (child.gridSpanX >= GRID_SPAN_FULL_ROW) return false
+    if (child.gridSpanX in 1 until configuredColumns) {
+        return child.w < safeGridCols
+    }
+    if (child.gridSpanX == 0) {
+        if (child.type == ComponentType.TEXT_LABEL && child.autoHeight && child.w >= 24) return false
+        return child.w in 1 until safeGridCols
+    }
+    return false
+}
+
+private fun shrunkWideFolderBounds(item: ComponentItem, gridColumns: Int): List<ContainerGridChildBounds>? {
+    if (item.containerLayout != ContainerLayoutType.GRID || item.containerPopupWidthDp > 0) return null
     val configured = item.containerColumns.coerceIn(1, 8)
+    val wideChildren = item.containerComponents.filterNot(::isContainerPopupCompactItem)
+    if (wideChildren.isEmpty()) return null
+    val safeGridCols = gridColumns.coerceIn(8, 64)
+    if (!wideChildren.all { isExplicitlyShrunkWideChild(it, configured, safeGridCols) }) return null
+    return containerGridChildBounds(
+        children = item.containerComponents,
+        columns = safeGridCols,
+        widthDp = WIDE_CARD_REFERENCE_INNER_DP,
+        stepYDp = WIDE_CARD_REFERENCE_INNER_DP / safeGridCols,
+        iconColumns = configured,
+        itemGapDp = item.containerItemGapDp,
+        itemSizeDp = item.containerItemSizeDp,
+        iconSizeDp = item.containerIconSizeDp,
+        rowGapDp = containerRowGapDp(item),
+        itemPaddingVerticalDp = item.containerItemPaddingVerticalDp,
+        iconLabelGapDp = item.containerIconLabelGapDp
+    )
+}
+
+private fun shrunkWideFolderContentWidthDp(item: ComponentItem, gridColumns: Int): Float? {
+    val measured = shrunkWideFolderBounds(item, gridColumns) ?: return null
+    val configured = item.containerColumns.coerceIn(1, 8)
+    val childrenMaxRight = measured.maxOfOrNull { it.x + it.width } ?: return null
+    val actionsWidth = if (item.containerActions.isNotEmpty()) {
+        val actionCols = minOf(item.containerActions.size, configured).coerceAtLeast(1)
+        actionCols * containerPopupIconCellWidthDp(item) +
+            (actionCols - 1) * item.containerItemGapDp.coerceIn(MIN_GRID_GAP_DP, MAX_GRID_GAP_DP)
+    } else 0f
+    return maxOf(childrenMaxRight, actionsWidth).coerceAtMost(WIDE_CARD_REFERENCE_INNER_DP)
+}
+
+fun containerPopupAdaptiveReferenceInnerWidthDp(
+    item: ComponentItem,
+    availableWidthDp: Float,
+    gridColumns: Int = 32
+): Float {
+    shrunkWideFolderContentWidthDp(item, gridColumns) ?: return 0f
+    return WIDE_CARD_REFERENCE_INNER_DP.coerceAtMost((availableWidthDp - POPUP_HORIZONTAL_CHROME_DP).coerceAtLeast(1f))
+}
+
+fun containerPopupColumns(item: ComponentItem, gridColumns: Int = 32): Int {
+    val configured = item.containerColumns.coerceIn(1, 8)
+    // Wide non-compact cards (such as APP_DRAWER_CARD / APP_KEYBOARD_LAUNCHER / PHOTO_CUBE / sliders)
+    // honor the folder's full configured column width unless all wide cards were explicitly shrunk.
+    if (item.containerComponents.any { !isContainerPopupCompactItem(it) }) {
+        val shrunkBounds = shrunkWideFolderBounds(item, gridColumns) ?: return configured
+        val childExtent = shrunkBounds.maxOfOrNull { it.col + it.spanCols } ?: 1
+        val actionExtent = if (item.containerActions.isNotEmpty()) minOf(item.containerActions.size, configured) else 0
+        return maxOf(childExtent, actionExtent).coerceIn(1, configured)
+    }
     val pinnedExtent = maxOf(
         item.containerComponents.filter { it.gridCol >= 0 }
             .maxOfOrNull { it.gridCol + it.gridSpanX.coerceIn(1, configured) } ?: 0,
@@ -53,12 +127,24 @@ private const val NARROW_COMPACT_POPUP_WIDTH_DP = 104f
 private const val MIN_MANUAL_POPUP_WIDTH_DP = 92
 
 /** Display-only width: a short icon row does not reserve unused columns unless [forceColumns] is specified (e.g., edit mode). */
-fun containerPopupWidthDp(item: ComponentItem, availableWidthDp: Float, forceColumns: Int? = null): Float {
+fun containerPopupWidthDp(
+    item: ComponentItem,
+    availableWidthDp: Float,
+    forceColumns: Int? = null,
+    gridColumns: Int = 32
+): Float {
     val iconOnly = item.containerComponents.all(::isContainerGridIconItem)
     val compactOnly = item.containerComponents.isNotEmpty() && item.containerComponents.all(::isContainerPopupCompactItem)
-    val columns = forceColumns?.coerceIn(1, 8) ?: containerPopupColumns(item)
+    val columns = forceColumns?.coerceIn(1, 8) ?: containerPopupColumns(item, gridColumns)
     val singleCompactGrid = item.containerLayout == ContainerLayoutType.GRID && columns == 1 && (iconOnly || compactOnly)
-    val autoFloor = if (singleCompactGrid) NARROW_COMPACT_POPUP_WIDTH_DP else DEFAULT_MIN_POPUP_WIDTH_DP
+    val shrunkWideInner = if (forceColumns == null && !iconOnly && !compactOnly) {
+        shrunkWideFolderContentWidthDp(item, gridColumns)
+    } else null
+    val autoFloor = when {
+        singleCompactGrid -> NARROW_COMPACT_POPUP_WIDTH_DP
+        shrunkWideInner != null -> SHRUNK_WIDE_MIN_POPUP_WIDTH_DP
+        else -> DEFAULT_MIN_POPUP_WIDTH_DP
+    }
     val desired = when {
         item.containerPopupWidthDp > 0 -> item.containerPopupWidthDp.coerceIn(MIN_MANUAL_POPUP_WIDTH_DP, 1200).toFloat()
         item.containerLayout == ContainerLayoutType.GRID && iconOnly ->
@@ -69,11 +155,14 @@ fun containerPopupWidthDp(item: ComponentItem, availableWidthDp: Float, forceCol
             (columns * containerPopupCompactCellWidthDp(item) +
                 (columns - 1) * item.containerItemGapDp.coerceIn(MIN_GRID_GAP_DP, MAX_GRID_GAP_DP) + 24f)
                 .coerceAtLeast(if (singleCompactGrid) NARROW_COMPACT_POPUP_WIDTH_DP else 164f)
-        else -> 360f
+        shrunkWideInner != null ->
+            (shrunkWideInner + POPUP_HORIZONTAL_CHROME_DP).coerceAtLeast(SHRUNK_WIDE_MIN_POPUP_WIDTH_DP)
+        else -> WIDE_CARD_REFERENCE_POPUP_WIDTH_DP
     }
     val finalFloor = when {
         item.containerPopupWidthDp > 0 -> MIN_MANUAL_POPUP_WIDTH_DP.toFloat()
         singleCompactGrid -> NARROW_COMPACT_POPUP_WIDTH_DP
+        shrunkWideInner != null -> SHRUNK_WIDE_MIN_POPUP_WIDTH_DP
         else -> DEFAULT_MIN_POPUP_WIDTH_DP
     }
     return desired.coerceAtLeast(finalFloor).coerceAtMost(availableWidthDp.coerceAtLeast(1f))
@@ -101,9 +190,9 @@ fun containerCompactTargetMetrics(
     val safeCols = gridColumns.coerceIn(8, 64)
     val safeAvailable = availableWidthDp.takeIf { it.isFinite() && it > 0f } ?: 320f
     val widthDp = if (item.type == ComponentType.FOLDER) {
-        val cols = if (editingInside) item.containerColumns.coerceIn(1, 8) else containerPopupColumns(item)
+        val cols = if (editingInside) item.containerColumns.coerceIn(1, 8) else containerPopupColumns(item, safeCols)
         val forceCols = if (editingInside && item.containerLayout == ContainerLayoutType.GRID) cols else null
-        (containerPopupWidthDp(item, safeAvailable, forceColumns = forceCols) - 24f).coerceAtLeast(68f)
+        (containerPopupWidthDp(item, safeAvailable, forceColumns = forceCols, gridColumns = safeCols) - 24f).coerceAtLeast(68f)
     } else {
         val fraction = item.w.coerceIn(1, safeCols).toFloat() / safeCols
         val horizontalInset = item.marginLeftDp + item.marginRightDp +
@@ -111,7 +200,7 @@ fun containerCompactTargetMetrics(
         (safeAvailable * fraction - horizontalInset).coerceAtLeast(120f)
     }
     val popupCols = if (item.type == ComponentType.FOLDER && !editingInside) {
-        containerPopupColumns(item)
+        containerPopupColumns(item, safeCols)
     } else {
         item.containerColumns.coerceIn(1, 8)
     }

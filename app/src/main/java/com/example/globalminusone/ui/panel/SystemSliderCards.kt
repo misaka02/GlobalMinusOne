@@ -42,6 +42,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -72,7 +73,13 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import com.example.globalminusone.data.MinusOneRepository
 import com.example.globalminusone.system.SystemController
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun BrightnessBarComponent(
@@ -80,15 +87,26 @@ fun BrightnessBarComponent(
     onBrightnessAdjusting: (Boolean) -> Unit,
     orientation: ComponentOrientation = ComponentOrientation.AUTO
 ) {
+    BrightnessBarContent(rememberBrightnessCardControl(systemController),
+        { source -> MinusOneRepository.getInstance(source).isPanelExpanded }, onBrightnessAdjusting, orientation)
+}
+
+@Composable
+internal fun BrightnessBarContent(
+    control: BrightnessCardControl,
+    panelExpansion: (Context) -> StateFlow<Boolean>,
+    onBrightnessAdjusting: (Boolean) -> Unit,
+    orientation: ComponentOrientation = ComponentOrientation.AUTO
+) {
     val cardColors = LocalCardColors.current
-    val actual by systemController.brightness.collectAsState()
+    val actual by control.brightness.collectAsState()
     var brightness by remember { mutableFloatStateOf(actual.percent?.toFloat() ?: 0f) }
     var lastAppliedPercent by remember { mutableIntStateOf(actual.percent ?: -1) }
     var adjusting by remember { mutableStateOf(false) }
     val brightnessInteraction = remember { MutableInteractionSource() }
     val context = LocalContext.current
     val panelExpanded by remember(context) {
-        MinusOneRepository.getInstance(context).isPanelExpanded
+        panelExpansion(context)
     }.collectAsState()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val currentOnAdjusting by rememberUpdatedState(onBrightnessAdjusting)
@@ -110,7 +128,7 @@ fun BrightnessBarComponent(
     LaunchedEffect(panelExpanded) {
         adjusting = false
         currentOnAdjusting(false)
-        if (panelExpanded) systemController.refreshBrightness()
+        if (panelExpanded) control.refreshBrightness()
     }
     LaunchedEffect(actual.canWrite) {
         if (!actual.canWrite) {
@@ -118,16 +136,16 @@ fun BrightnessBarComponent(
             currentOnAdjusting(false)
         }
     }
-    DisposableEffect(systemController, lifecycle) {
+    DisposableEffect(control, lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME || event == Lifecycle.Event.ON_PAUSE) {
                 adjusting = false
                 currentOnAdjusting(false)
-                systemController.refreshBrightness()
+                control.refreshBrightness()
             }
         }
         lifecycle.addObserver(observer)
-        systemController.refreshBrightness()
+        control.refreshBrightness()
         onDispose {
             lifecycle.removeObserver(observer)
             currentOnAdjusting(false)
@@ -151,8 +169,8 @@ fun BrightnessBarComponent(
         }
         val actionable = !actual.permitted || (actual.automatic && actual.percent != null)
         fun onAction() {
-            if (!actual.permitted) systemController.requestWriteSettingsPermission()
-            else if (!systemController.useManualBrightness())
+            if (!actual.permitted) control.requestWriteSettingsPermission()
+            else if (!control.useManualBrightness())
                 Toast.makeText(context, "未切换亮度模式", Toast.LENGTH_SHORT).show()
         }
         BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -221,12 +239,12 @@ fun BrightnessBarComponent(
                 val targetPercent = it.roundToInt().coerceIn(0, 100)
                 if (targetPercent != lastAppliedPercent) {
                     lastAppliedPercent = targetPercent
-                    systemController.setBrightnessPercent(targetPercent)
+                    control.setBrightnessPercent(targetPercent)
                 }
             },
             onValueChangeFinished = {
                 val finalPercent = brightness.roundToInt().coerceIn(0, 100)
-                if (adjusting && !systemController.setBrightnessPercent(finalPercent))
+                if (adjusting && !control.setBrightnessPercent(finalPercent))
                     Toast.makeText(context, "未修改亮度，请检查权限、模式与设备范围", Toast.LENGTH_SHORT).show()
                 lastAppliedPercent = finalPercent
                 adjusting = false
@@ -241,20 +259,42 @@ fun VolumeBarComponent(
     systemController: SystemController,
     orientation: ComponentOrientation = ComponentOrientation.AUTO
 ) {
+    VolumeBarContent(rememberVolumeCardControl(systemController),
+        { source -> MinusOneRepository.getInstance(source).isPanelExpanded }, orientation)
+}
+
+@Composable
+internal fun VolumeBarContent(
+    control: VolumeCardControl,
+    panelExpansion: (Context) -> StateFlow<Boolean>,
+    orientation: ComponentOrientation = ComponentOrientation.AUTO
+) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val panelExpanded by remember(context) {
-        MinusOneRepository.getInstance(context).isPanelExpanded
+        panelExpansion(context)
     }.collectAsState()
-    var volume by remember { mutableFloatStateOf(systemController.getMediaVolumePercent().toFloat()) }
+    var volume by remember { mutableFloatStateOf(0f) }
     var draggingVolume by remember { mutableStateOf(false) }
-    var lastAppliedPercent by remember { mutableIntStateOf(volume.roundToInt()) }
+    var lastAppliedPercent by remember { mutableIntStateOf(-1) }
+    var reconcileJob by remember { mutableStateOf<Job?>(null) }
+    var readJob by remember { mutableStateOf<Job?>(null) }
     val volumeInteraction = remember { MutableInteractionSource() }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
 
     fun readCurrentVolume() {
-        val current = systemController.getMediaVolumePercent()
-        volume = current.toFloat()
-        lastAppliedPercent = current
+        readJob?.cancel()
+        readJob = scope.launch {
+            val current = withContext(Dispatchers.IO) { control.getMediaVolumePercent() }
+            if (!draggingVolume) {
+                volume = current.toFloat()
+                lastAppliedPercent = current
+            }
+        }
+    }
+
+    LaunchedEffect(control) {
+        readCurrentVolume()
     }
 
     // Slider does not call onValueChangeFinished when a pointer gesture is cancelled.
@@ -269,13 +309,15 @@ fun VolumeBarComponent(
     }
 
     LaunchedEffect(panelExpanded) {
+        reconcileJob?.cancel()
         draggingVolume = false
         if (panelExpanded) readCurrentVolume()
     }
 
-    DisposableEffect(context, systemController, lifecycle) {
+    DisposableEffect(context, control, lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME || event == Lifecycle.Event.ON_PAUSE) {
+                reconcileJob?.cancel()
                 draggingVolume = false
                 readCurrentVolume()
             }
@@ -297,30 +339,44 @@ fun VolumeBarComponent(
             )
         }
         onDispose {
+            readJob?.cancel()
+            reconcileJob?.cancel()
             lifecycle.removeObserver(observer)
             runCatching { context.unregisterReceiver(receiver) }
         }
     }
 
     SystemSliderRow(
-            icon = Icons.Rounded.VolumeUp,
-            title = "音量",
-            value = volume,
-            interactionSource = volumeInteraction,
-            onValueChange = {
-                draggingVolume = true
-                volume = it
-                val targetPercent = it.roundToInt().coerceIn(0, 100)
-                if (targetPercent != lastAppliedPercent) {
-                    lastAppliedPercent = targetPercent
-                    systemController.setMediaVolumePercent(targetPercent)
-                }
-            },
-            onValueChangeFinished = {
-                draggingVolume = false
-                readCurrentVolume()
-            },
-            orientation = orientation
+        icon = Icons.Rounded.VolumeUp,
+        title = "音量",
+        value = volume,
+        interactionSource = volumeInteraction,
+        onIconClick = { control.openSystemVolumePanel() },
+        onValueChange = {
+            reconcileJob?.cancel()
+            draggingVolume = true
+            volume = it
+            val targetPercent = it.roundToInt().coerceIn(0, 100)
+            if (targetPercent != lastAppliedPercent) {
+                lastAppliedPercent = targetPercent
+                control.setMediaVolumePercentAsync(targetPercent)
+            }
+        },
+        onValueChangeFinished = {
+            val finalPercent = volume.roundToInt().coerceIn(0, 100)
+            lastAppliedPercent = finalPercent
+            draggingVolume = false
+            control.commitMediaVolumePercentAsync(finalPercent) {
+                Toast.makeText(context, "系统限制音量调节，已呼出系统音量条", Toast.LENGTH_SHORT).show()
+                control.openSystemVolumePanel()
+            }
+            reconcileJob?.cancel()
+            reconcileJob = scope.launch {
+                delay(320L)
+                if (!draggingVolume) readCurrentVolume()
+            }
+        },
+        orientation = orientation
     )
 }
 
@@ -332,7 +388,8 @@ private fun SystemSliderRow(
     interactionSource: MutableInteractionSource,
     onValueChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit,
-    orientation: ComponentOrientation = ComponentOrientation.AUTO
+    orientation: ComponentOrientation = ComponentOrientation.AUTO,
+    onIconClick: (() -> Unit)? = null
 ) {
     val cardColors = LocalCardColors.current
     val isEditMode = LocalIsEditMode.current
@@ -367,15 +424,6 @@ private fun SystemSliderRow(
                     lockFromDown = true,
                     axis = PanelGestureAxis.Horizontal
                 )
-                .then(
-                    if (!isEditMode) {
-                        Modifier.clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = {}
-                        )
-                    } else Modifier
-                )
                 .padding(horizontal = 8.dp)
         ) {
         val availableRowWidth = this@BoxWithConstraints.maxWidth
@@ -383,7 +431,18 @@ private fun SystemSliderRow(
         // the readable percentage and useful track length instead of squeezing an 11sp label.
         val compact = availableRowWidth < (240f * fontScale).dp
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = title, tint = cardColors.accent, modifier = Modifier.size(18.dp))
+            Icon(
+                imageVector = icon,
+                contentDescription = title,
+                tint = cardColors.accent,
+                modifier = Modifier
+                    .size(20.dp)
+                    .then(
+                        if (!isEditMode && onIconClick != null) {
+                            Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onIconClick)
+                        } else Modifier
+                    )
+            )
             Spacer(Modifier.width(6.dp))
             Text(
                 text = if (compact) "${value.roundToInt()}%" else "$title ${value.roundToInt()}%",
@@ -426,38 +485,50 @@ private fun SystemSliderRow(
 
                                     var scrubbing = false
                                     var movedVertically = false
+                                    var activeDrag: DragInteraction.Start? = null
                                     val startX = down.position.x
                                     val startY = down.position.y
-
-                                    while (true) {
-                                        val event = awaitPointerEvent()
-                                        val pointer = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull() ?: break
-                                        if (!pointer.pressed) {
-                                            if (scrubbing) {
-                                                pointer.consume()
-                                                latestOnFinished()
-                                            } else if (!movedVertically && !pointer.isConsumed) {
-                                                pointer.consume()
-                                                latestOnChange(percentAt(pointer.position.x))
-                                                latestOnFinished()
+                                    try {
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            val pointer = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull() ?: break
+                                            if (!pointer.pressed) {
+                                                if (scrubbing) {
+                                                    pointer.consume()
+                                                    activeDrag?.let { interactionSource.tryEmit(DragInteraction.Stop(it)) }
+                                                    activeDrag = null
+                                                    latestOnFinished()
+                                                } else if (!movedVertically && !pointer.isConsumed) {
+                                                    pointer.consume()
+                                                    latestOnChange(percentAt(pointer.position.x))
+                                                    latestOnFinished()
+                                                }
+                                                break
                                             }
-                                            break
+                                            val dx = pointer.position.x - startX
+                                            val dy = pointer.position.y - startY
+                                            if (!scrubbing && !movedVertically) {
+                                                if (abs(dx) >= scrubSlopPx && abs(dx) >= abs(dy) * 0.6f) {
+                                                    scrubbing = true
+                                                    val startEvt = DragInteraction.Start()
+                                                    activeDrag = startEvt
+                                                    interactionSource.tryEmit(startEvt)
+                                                    latestOnChange(percentAt(pointer.position.x))
+                                                    pointer.consume()
+                                                } else if (abs(dy) > scrubSlopPx * 4f && abs(dy) > abs(dx) * 1.6f) {
+                                                    movedVertically = true
+                                                }
+                                            } else if (scrubbing) {
+                                                if (pointer.positionChange() != Offset.Zero) {
+                                                    latestOnChange(percentAt(pointer.position.x))
+                                                }
+                                                pointer.consume()
+                                            }
                                         }
-                                        val dx = pointer.position.x - startX
-                                        val dy = pointer.position.y - startY
-                                        if (!scrubbing && !movedVertically) {
-                                            if (abs(dx) >= scrubSlopPx && abs(dx) >= abs(dy) * 0.6f) {
-                                                scrubbing = true
-                                                latestOnChange(percentAt(pointer.position.x))
-                                                pointer.consume()
-                                            } else if (abs(dy) > scrubSlopPx * 4f && abs(dy) > abs(dx) * 1.6f) {
-                                                movedVertically = true
-                                            }
-                                        } else if (scrubbing) {
-                                            if (pointer.positionChange() != Offset.Zero) {
-                                                latestOnChange(percentAt(pointer.position.x))
-                                            }
-                                            pointer.consume()
+                                    } finally {
+                                        activeDrag?.let {
+                                            interactionSource.tryEmit(DragInteraction.Cancel(it))
+                                            latestOnFinished()
                                         }
                                     }
                                 }

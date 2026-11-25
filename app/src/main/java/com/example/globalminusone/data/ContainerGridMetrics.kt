@@ -45,10 +45,12 @@ fun containerGridChildBounds(children: List<ComponentItem>, columns: Int, widthD
     configuredHeightUnitDp: Int = 0, fontScale: Float = 1f, iconColumns: Int = 4,
     compactExpansion: Map<String, Float> = emptyMap(), itemGapDp: Int = 0, itemSizeDp: Int = 0,
     iconSizeDp: Int = 0, rowGapDp: Int = ROW_GAP_INHERIT, itemPaddingVerticalDp: Int = 0,
-    iconLabelGapDp: Int = 2): List<ContainerGridChildBounds> {
+    iconLabelGapDp: Int = 2, wReferenceWidthDp: Float = 0f): List<ContainerGridChildBounds> {
     val count = columns.coerceIn(8, 64)
     val width = widthDp.coerceAtLeast(1f)
     val unitX = width / count
+    val wRefWidth = if (wReferenceWidthDp > width) wReferenceWidthDp else width
+    val wUnitX = wRefWidth / count
     val slots = iconColumns.coerceIn(1, 8)
     val gap = itemGapDp.coerceIn(MIN_GRID_GAP_DP, MAX_GRID_GAP_DP).toFloat()
     val rowGap = (if (rowGapDp == ROW_GAP_INHERIT) itemGapDp else rowGapDp)
@@ -91,17 +93,18 @@ fun containerGridChildBounds(children: List<ComponentItem>, columns: Int, widthD
         val occupiedSlots = when {
             span > 0 -> span
             standardIcon || tile -> 1
-            else -> ceil(child.w.coerceIn(1, count) * unitX / (cellWidth + gap).coerceAtLeast(8f)).toInt().coerceIn(1, slots)
+            else -> ceil(child.w.coerceIn(1, count) * wUnitX / (cellWidth + gap).coerceAtLeast(8f)).toInt().coerceIn(1, slots)
         }
         val childWidth = when {
             span > 0 -> (cellWidth * span + gap * (span - 1)).coerceAtLeast(16f)
             standardIcon || tile -> if (itemSizeDp > 0 && iconSizeDp <= 0) minOf(cellWidth, legacySize) else cellWidth
-            else -> child.w.coerceIn(1, count) * unitX
+            else -> child.w.coerceIn(1, count) * wUnitX
         }.coerceIn(1f, width)
         val height = if (standardIcon) {
             max(iconHeight(child), legacySize)
         } else {
-            val logicalWidth = ceil(childWidth / unitX).toInt().coerceIn(1, count)
+            val effUnitX = if (span == 0 && !tile) wUnitX else unitX
+            val logicalWidth = ceil(childWidth / effUnitX).toInt().coerceIn(1, count)
             componentDisplayHeightDp(child.copy(w = logicalWidth), childWidth, count, configuredHeightUnitDp,
                 scale, compactExpansion = compactExpansion)
         }
@@ -122,7 +125,13 @@ fun containerGridChildBounds(children: List<ComponentItem>, columns: Int, widthD
                 x = 0f; y += (rowHeight + rowGap).coerceAtLeast(12f); rowHeight = 0f; slotsInRow = 0; rowIdx++
             }
             val placedCol = slotsInRow.coerceIn(0, (slots - m.spanCols).coerceAtLeast(0))
-            val placedHeight = maxOf(m.baseHeight, m.explicitSpanHeight)
+            val hasAuthoritativeSpanHeight = !m.standardIcon && m.child.gridSpanY > 0 &&
+                !(m.child.type == ComponentType.CONTAINER_BOX && m.child.containerCompact)
+            val placedHeight = if (hasAuthoritativeSpanHeight) {
+                m.explicitSpanHeight.coerceAtLeast(44f)
+            } else {
+                maxOf(m.baseHeight, m.explicitSpanHeight)
+            }
             ContainerGridChildBounds(
                 item = m.child,
                 x = x,
@@ -209,10 +218,16 @@ fun containerGridChildBounds(children: List<ComponentItem>, columns: Int, widthD
 
     val totalRows = placements.maxOfOrNullIndexed(measured) { idx, (_, r) -> r + measured[idx].spanRows } ?: 1
     val rowHeights = FloatArray(totalRows) { defaultRowHeight }
+    fun childPlacedHeight(m: MeasuredChild): Float {
+        val authoritativeSpan = !m.standardIcon && m.child.gridSpanY > 0 &&
+            !(m.child.type == ComponentType.CONTAINER_BOX && m.child.containerCompact)
+        return if (authoritativeSpan) m.explicitSpanHeight.coerceAtLeast(44f)
+        else maxOf(m.baseHeight, m.explicitSpanHeight)
+    }
     measured.forEachIndexed { idx, m ->
         val (_, r) = placements[idx] ?: (0 to 0)
         if (m.spanRows == 1) {
-            rowHeights[r] = max(rowHeights[r], maxOf(m.baseHeight, m.explicitSpanHeight))
+            rowHeights[r] = max(rowHeights[r], childPlacedHeight(m))
         }
     }
     val rowTops = FloatArray(totalRows)
@@ -222,14 +237,17 @@ fun containerGridChildBounds(children: List<ComponentItem>, columns: Int, widthD
 
     return measured.mapIndexed { idx, m ->
         val (pCol, pRow) = placements[idx] ?: (0 to 0)
+        val authoritativeSpan = !m.standardIcon && m.child.gridSpanY > 0 &&
+            !(m.child.type == ComponentType.CONTAINER_BOX && m.child.containerCompact)
         val multiHeight = if (m.spanRows > 1) {
             var sum = 0f
             for (r in pRow until (pRow + m.spanRows).coerceAtMost(totalRows)) {
                 sum += rowHeights[r]
             }
-            maxOf(m.baseHeight, m.explicitSpanHeight, sum + rowGap * (m.spanRows - 1))
+            if (authoritativeSpan) maxOf(m.explicitSpanHeight, sum + rowGap * (m.spanRows - 1)).coerceAtLeast(44f)
+            else maxOf(m.baseHeight, m.explicitSpanHeight, sum + rowGap * (m.spanRows - 1))
         } else {
-            maxOf(m.baseHeight, m.explicitSpanHeight)
+            childPlacedHeight(m)
         }
         ContainerGridChildBounds(
             item = m.child,

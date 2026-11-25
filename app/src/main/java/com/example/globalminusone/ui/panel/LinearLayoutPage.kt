@@ -55,7 +55,7 @@ fun LinearLayoutPage(page: PageConfig, pageIndex: Int, state: GlobalMinusOneStat
     }
     val density = LocalDensity.current
     val owner = LocalPanelGestureOwnership.current
-    val expansion = compactCurtainFractions()
+    val expansion = compactCurtainFractions(page.components)
     LaunchedEffect(page.id, componentIds, active, restoreRevision) {
         if (!active) return@LaunchedEffect
         snapshotFlow { list.layoutInfo }.collect { info ->
@@ -80,12 +80,21 @@ fun LinearLayoutPage(page: PageConfig, pageIndex: Int, state: GlobalMinusOneStat
                 val fraction = item.w.coerceIn(1, columns).toFloat() / columns
                 val expected = componentDisplayHeightDp(item, width * fraction, columns, state.advancedConfig.heightUnitDp, density.fontScale, compactExpansion = expansion)
                 Box(Modifier.fillMaxWidth(fraction).height(expected.dp)
-                    .cardLongPressToEdit(item.id, !state.advancedConfig.layoutLocked && !item.type.isContainerType() &&
-                        item.type !in setOf(ComponentType.APP_ICON, ComponentType.APP_DRAWER_CARD, ComponentType.RECENT_APPS_CARD)) {
+                    .cardLongPressToEdit(
+                        key = item.id,
+                        enabled = !state.advancedConfig.layoutLocked && !item.type.isContainerType() &&
+                            !com.example.globalminusone.data.isSingleIconLauncherItem(item) &&
+                            item.type !in setOf(ComponentType.APP_ICON, ComponentType.APP_DRAWER_CARD, ComponentType.APP_KEYBOARD_LAUNCHER, ComponentType.RECENT_APPS_CARD),
+                        requireIdleOwnership = !com.example.globalminusone.data.isSliderBarType(item.type) &&
+                            item.type != ComponentType.APP_WIDGET
+                    ) {
                         repository.setEditMode(true); repository.selectComponent(item.id)
-                    }.ownPanelScrollGestures(item.type.ownsPanelScrolling(),
-                        lockFromDown = com.example.globalminusone.data.isSliderBarType(item.type),
-                        axis = panelScrollAxisForComponent(item, width * fraction, expected))) { render(item) }
+                    }.ownPanelScrollGestures(
+                        item.type.ownsPanelScrolling() && !com.example.globalminusone.data.isSingleIconLauncherItem(item),
+                        lockFromDown = com.example.globalminusone.data.isSliderBarType(item.type) &&
+                            !com.example.globalminusone.data.isSingleIconLauncherItem(item),
+                        axis = panelScrollAxisForComponent(item, width * fraction, expected)
+                    )) { render(item) }
             }
         }
         }

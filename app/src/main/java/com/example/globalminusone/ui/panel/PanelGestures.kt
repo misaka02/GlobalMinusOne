@@ -77,10 +77,7 @@ internal class PanelGestureOwnership {
 }
 
 internal val LocalPanelGestureOwnership = staticCompositionLocalOf { PanelGestureOwnership() }
-internal val LocalOpenGlobalProperties = staticCompositionLocalOf<() -> Unit> { {} }
 internal val LocalAddAboveComponent = staticCompositionLocalOf<((String) -> Unit)?> { null }
-internal val LocalExitPanelEdit = staticCompositionLocalOf<(() -> Unit)?> { null }
-internal val LocalOpenNewPageModal = staticCompositionLocalOf<(() -> Unit)?> { null }
 
 /** A drag on the scrim must never become a close, including an out-and-back drag or an UP-only jump. */
 @OptIn(ExperimentalComposeUiApi::class)
@@ -96,10 +93,11 @@ internal fun Modifier.strictPanelBackgroundTap(onTap: () -> Unit): Modifier {
             val window = IntArray(2)
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = true, pass = PointerEventPass.Main)
+                view.getLocationOnScreen(screen); view.getLocationInWindow(window)
+                val windowToScreen = Offset((screen[0] - window[0]).toFloat(), (screen[1] - window[1]).toFloat())
                 fun screenPoint(position: Offset): Offset {
-                    view.getLocationOnScreen(screen); view.getLocationInWindow(window)
                     val local = coordinates[0]?.takeIf { it.isAttached }?.localToWindow(position) ?: position
-                    return local + Offset((screen[0] - window[0]).toFloat(), (screen[1] - window[1]).toFloat())
+                    return local + windowToScreen
                 }
                 val origin = screenPoint(down.position)
                 val policy = BackgroundTapPolicy(origin.x, origin.y, down.uptimeMillis,

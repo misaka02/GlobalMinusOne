@@ -25,6 +25,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.sp
 import android.widget.Toast
@@ -42,6 +43,16 @@ internal fun NestedContainerComponents(
     onOpenEditDialog: (ComponentItem) -> Unit,
     content: @Composable (ComponentItem) -> Unit
 ) {
+    NestedContainerContent(container, pageIndex, state.cardLayoutSnapshot(), rememberCardLayoutActions(repository),
+        rememberCardDestinationPicker(repository), onOpenEditDialog, content)
+}
+
+@Composable
+internal fun NestedContainerContent(
+    container: ComponentItem, pageIndex: Int, state: CardLayoutSnapshot, layoutActions: CardLayoutActions,
+    destinationPicker: CardDestinationPicker, onOpenEditDialog: (ComponentItem) -> Unit,
+    content: @Composable (ComponentItem) -> Unit
+) {
     val density = LocalDensity.current
     val folderEditing = LocalFolderEditing.current
     val folderEditAction = LocalFolderEditAction.current
@@ -49,8 +60,8 @@ internal fun NestedContainerComponents(
     val folderReturn = LocalFolderReturnState.current
     val openProperties: (ComponentItem) -> Unit = openFolderProperties ?: onOpenEditDialog
     val editing = containerEditingMode(state.editMode, if (folderEditAction != null) folderEditing else null,
-        state.advancedConfig.layoutLocked)
-    val expansion = compactCurtainFractions()
+        state.layoutLocked)
+    val expansion = compactCurtainFractions(container.containerComponents)
     val scroll = rememberScrollState()
     val horizontalScroll = rememberScrollState()
     val scrollRoute = rememberContainerScrollRoute(scroll)
@@ -62,8 +73,8 @@ internal fun NestedContainerComponents(
     var transferChildRequest by remember(container.id) { mutableStateOf<Pair<String, Boolean>?>(null) }
     var destructiveRequest by remember(container.id) { mutableStateOf<CardDestructiveRequest?>(null) }
     val currentPageId = state.pages.getOrNull(pageIndex)?.id.orEmpty()
-    LaunchedEffect(state.advancedConfig.layoutLocked) {
-        if (state.advancedConfig.layoutLocked) {
+    LaunchedEffect(state.layoutLocked) {
+        if (state.layoutLocked) {
             activeId = null
             previewDropCell = null
             dropCellRef[0] = null
@@ -73,16 +84,15 @@ internal fun NestedContainerComponents(
         }
     }
     destructiveRequest?.let { request ->
-        CardDestructiveConfirmation(request, repository) { destructiveRequest = null }
+        CardDestructiveConfirmationContent(request, layoutActions) { destructiveRequest = null }
     }
     transferChildRequest?.let { (childId, moving) ->
-        ComponentDestinationDialog(
-            repository = repository,
+        destinationPicker.Show(
             excludedSubtreeId = childId,
             title = if (moving) "移动到" else "复制到",
             onDismiss = { transferChildRequest = null }
         ) { targetPageId, targetContainerId ->
-            val saved = repository.transferComponent(currentPageId, childId, targetPageId, targetContainerId, copy = !moving)
+            val saved = layoutActions.transferComponent(currentPageId, childId, targetPageId, targetContainerId, copy = !moving)
             if (!saved) Toast.makeText(context, "布局已锁定或目标已失效", Toast.LENGTH_SHORT).show()
             else Toast.makeText(context, "已保存到所选位置", Toast.LENGTH_SHORT).show()
             transferChildRequest = null
@@ -90,21 +100,37 @@ internal fun NestedContainerComponents(
     }
     val grid = container.containerLayout == ContainerLayoutType.GRID
     val iconColumns = if (LocalContainerPopupId.current == container.id && !editing && activeId == null) {
-        containerPopupColumns(container)
+        containerPopupColumns(container, gridColumns = state.gridColumns)
     } else {
         container.containerColumns.coerceIn(1, 8)
     }
     // The viewport stays finite; child geometry is independent of that viewport.
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val columns = state.advancedConfig.gridColumns.coerceIn(8, 64)
+        val columns = state.gridColumns.coerceIn(8, 64)
         val viewportWidthPx = (if (constraints.hasBoundedWidth) constraints.maxWidth.toFloat() else with(density) { 320.dp.toPx() }).coerceAtLeast(columns.toFloat())
         val pageWidthDp = if (grid) containerGridContentWidthDp(container, with(density) { viewportWidthPx.toDp().value }, iconColumns)
             else with(density) { viewportWidthPx.toDp().value }
         val pageWidthPx = with(density) { pageWidthDp.dp.toPx() }
         val stepX = pageWidthPx / columns
-        val stepY = if (state.advancedConfig.heightUnitDp > 0) with(density) { state.advancedConfig.heightUnitDp.dp.toPx() } else stepX
+        val stepY = if (state.heightUnitDp > 0) with(density) { state.heightUnitDp.dp.toPx() } else stepX
         val stepYDpValue = with(density) { stepY.toDp().value }
-        val viewportHeightPx = minOf(if (constraints.hasBoundedHeight) constraints.maxHeight.toFloat() else Float.MAX_VALUE, with(density) { CONTAINER_VIEWPORT_MAX_DP.dp.toPx() })
+        val insideOwnPopup = LocalContainerPopupId.current == container.id
+        val adaptiveRefWidthDp = if (grid && insideOwnPopup && !editing && activeId == null) {
+            containerPopupAdaptiveReferenceInnerWidthDp(
+                item = container,
+                availableWidthDp = 1200f,
+                gridColumns = columns
+            )
+        } else 0f
+        val fallbackViewportPx = with(density) { CONTAINER_VIEWPORT_MAX_DP.dp.toPx() }
+        val screenHeightPx = with(density) { LocalConfiguration.current.screenHeightDp.coerceIn(480, 2000).dp.toPx() }
+        val viewportHeightPx = resolveContainerViewportHeightPx(
+            hasBoundedHeight = constraints.hasBoundedHeight,
+            maxConstraintHeightPx = constraints.maxHeight.toFloat(),
+            insideOwnPopup = insideOwnPopup,
+            screenHeightPx = screenHeightPx,
+            maxFallbackPx = fallbackViewportPx
+        )
         val resolvedRowGap = containerRowGapDp(container)
         val ordered = remember(
             container.containerComponents,
@@ -114,7 +140,7 @@ internal fun NestedContainerComponents(
             columns,
             pageWidthDp,
             stepYDpValue,
-            state.advancedConfig.heightUnitDp,
+            state.heightUnitDp,
             density.fontScale,
             iconColumns,
             expansion,
@@ -133,7 +159,7 @@ internal fun NestedContainerComponents(
                     columns = columns,
                     widthDp = pageWidthDp,
                     stepYDp = stepYDpValue,
-                    configuredHeightUnitDp = state.advancedConfig.heightUnitDp,
+                    configuredHeightUnitDp = state.heightUnitDp,
                     fontScale = density.fontScale,
                     iconColumns = iconColumns,
                     compactExpansion = expansion,
@@ -157,7 +183,7 @@ internal fun NestedContainerComponents(
             columns,
             pageWidthDp,
             stepYDpValue,
-            state.advancedConfig.heightUnitDp,
+            state.heightUnitDp,
             density.fontScale,
             iconColumns,
             expansion,
@@ -166,14 +192,16 @@ internal fun NestedContainerComponents(
             container.containerIconSizeDp,
             resolvedRowGap,
             container.containerItemPaddingVerticalDp,
-            container.containerIconLabelGapDp
+            container.containerIconLabelGapDp,
+            adaptiveRefWidthDp
         ) {
             if (grid) {
                 containerGridChildBounds(
-                    container.containerComponents, columns, pageWidthDp, stepYDpValue, state.advancedConfig.heightUnitDp,
+                    container.containerComponents, columns, pageWidthDp, stepYDpValue, state.heightUnitDp,
                     density.fontScale, iconColumns, expansion, container.containerItemGapDp,
                     container.containerItemSizeDp, container.containerIconSizeDp, resolvedRowGap,
-                    container.containerItemPaddingVerticalDp, container.containerIconLabelGapDp
+                    container.containerItemPaddingVerticalDp, container.containerIconLabelGapDp,
+                    wReferenceWidthDp = adaptiveRefWidthDp
                 ).associateBy { it.item.id }
             } else emptyMap()
         }
@@ -183,7 +211,7 @@ internal fun NestedContainerComponents(
             columns,
             pageWidthDp,
             stepYDpValue,
-            state.advancedConfig.heightUnitDp,
+            state.heightUnitDp,
             density.fontScale,
             iconColumns,
             expansion,
@@ -192,14 +220,16 @@ internal fun NestedContainerComponents(
             container.containerIconSizeDp,
             resolvedRowGap,
             container.containerItemPaddingVerticalDp,
-            container.containerIconLabelGapDp
+            container.containerIconLabelGapDp,
+            adaptiveRefWidthDp
         ) {
             if (grid) {
                 containerGridChildBounds(
-                    ordered, columns, pageWidthDp, stepYDpValue, state.advancedConfig.heightUnitDp,
+                    ordered, columns, pageWidthDp, stepYDpValue, state.heightUnitDp,
                     density.fontScale, iconColumns, expansion, container.containerItemGapDp,
                     container.containerItemSizeDp, container.containerIconSizeDp, resolvedRowGap,
-                    container.containerItemPaddingVerticalDp, container.containerIconLabelGapDp
+                    container.containerItemPaddingVerticalDp, container.containerIconLabelGapDp,
+                    wReferenceWidthDp = adaptiveRefWidthDp
                 ).associateBy { it.item.id }
             } else emptyMap()
         }
@@ -220,7 +250,7 @@ internal fun NestedContainerComponents(
             columns,
             pageWidthPx,
             stepYDpValue,
-            state.advancedConfig.heightUnitDp,
+            state.heightUnitDp,
             density.fontScale,
             expansion
         ) {
@@ -229,7 +259,7 @@ internal fun NestedContainerComponents(
                 columns,
                 with(density) { pageWidthPx.toDp().value },
                 stepYDpValue,
-                state.advancedConfig.heightUnitDp,
+                state.heightUnitDp,
                 density.fontScale,
                 expansion
             ).associateBy { it.id }
@@ -244,7 +274,12 @@ internal fun NestedContainerComponents(
         // Preserve a scrolled drag canvas without inflating every short folder to the 480dp limit.
         val extraEditGridPx = if (grid && (editing || activeId != null)) with(density) { 84.dp.toPx() } else 0f
         val contentHeightPx = if (grid) ((gridBounds.values.maxOfOrNull { it.y + it.height } ?: 1f) * density.density + extraEditGridPx) else rows * stepY
-        val canvasHeightPx = maxOf(dragCanvasEnd, stableContentExtent(contentHeightPx, scroll.value, minOf(contentHeightPx, viewportHeightPx)))
+        val effectiveViewportPx = minOf(contentHeightPx, viewportHeightPx)
+        val canvasHeightPx by remember(scroll, dragCanvasEnd, contentHeightPx, effectiveViewportPx) {
+            derivedStateOf {
+                maxOf(dragCanvasEnd, stableContentExtent(contentHeightPx, scroll.value, effectiveViewportPx))
+            }
+        }
         val canvasHeightDp = with(density) { canvasHeightPx.toDp() }
         val viewportMaxHeight = with(density) { viewportHeightPx.toDp() }
         // Hold confirmation changes ownership before the release/menu or drag callback.
@@ -324,7 +359,8 @@ internal fun NestedContainerComponents(
                     LocalPanelScrollTarget provides scrollRoute.target) {
                 container.containerComponents.forEachIndexed { index, child -> key(child.id) {
                     val insideFolder = folderEditAction != null
-                    val appTarget = isAppContextMenuCardType(child.type)
+                    val appTarget = isAppContextMenuCardType(child.type) ||
+                        com.example.globalminusone.data.isSingleIconLauncherItem(child)
                     val interaction = remember(child.id) { FolderItemInteraction() }
                     val shownRows = childRows[child.id] ?: child.h
                     val positioned = positionedChildren[child.id] ?: child
@@ -342,7 +378,7 @@ internal fun NestedContainerComponents(
                             if (editing && state.selectedComponentId == child.id && child.type == ComponentType.FOLDER) {
                                 folderReturn?.openNow(child.id)
                             } else {
-                                repository.selectComponent(child.id)
+                                layoutActions.selectComponent(child.id)
                             }
                         },
                         onInteracting = { interacting ->
@@ -360,14 +396,14 @@ internal fun NestedContainerComponents(
                             }
                         },
                         onCommitLayout = { x, y, w, h, resizeWidth, resizeHeight ->
-                            val latest = repository.state.value
+                            val latest = layoutActions.current
                             val targetPage = latest.pages.indexOfFirst { it.id == state.pages.getOrNull(pageIndex)?.id }
-                            if (targetPage >= 0 && canCommitLayout(latest.editMode || insideFolder, latest.advancedConfig.layoutLocked)) {
+                            if (targetPage >= 0 && canCommitLayout(latest.editMode || insideFolder, latest.layoutLocked)) {
                                 if (grid && !resizeWidth && !resizeHeight) {
                                     val cellToCommit = dropCellRef[0] ?: previewDropCell
                                     dropCellRef[0] = null
                                     if (cellToCommit != null) {
-                                        repository.placeChildInContainerGrid(
+                                        layoutActions.placeChildInContainerGrid(
                                             pageIndex = targetPage,
                                             containerId = container.id,
                                             movedId = child.id,
@@ -379,29 +415,35 @@ internal fun NestedContainerComponents(
                                             fontScale = density.fontScale
                                         )
                                     }
-                                } else repository.updateComponent(targetPage, child.id) { actual ->
+                                } else if (grid && (resizeWidth || resizeHeight)) {
+                                    layoutActions.updateComponent(targetPage, child.id) { actual ->
+                                        commitContainerGridChildResize(actual, w = w, h = h, resizeWidth = resizeWidth, resizeHeight = resizeHeight)
+                                    }
+                                } else layoutActions.updateComponent(targetPage, child.id) { actual ->
                                     commitCardGeometry(actual, if (grid) actual.x else x, if (grid) actual.y else (y - (positioned.y - child.y)).coerceAtLeast(0), w, h, resizeWidth, resizeHeight)
                                 }
                             }
                         },
                         onOpenEditDialog = { openProperties(child) },
-                        onEnterEditMode = { if (folderEditAction != null) folderEditAction() else repository.setEditMode(true); repository.selectComponent(child.id) },
-                        dragOutsideEdit = insideFolder && !state.advancedConfig.layoutLocked && (appTarget || child.type == ComponentType.FOLDER),
+                        onEnterEditMode = { if (folderEditAction != null) folderEditAction() else layoutActions.setEditMode(true); layoutActions.selectComponent(child.id) },
+                        dragOutsideEdit = insideFolder && !state.layoutLocked && (appTarget || child.type == ComponentType.FOLDER),
                         onContentTap = if (insideFolder && !editing) ({
                             if (appTarget) interaction.tap?.invoke()
-                            else if (child.type == ComponentType.FOLDER) folderReturn?.openNow(child.id)
+                            else if (child.type == ComponentType.FOLDER) {
+                                interaction.tap?.invoke() ?: folderReturn?.openNow(child.id)
+                            }
                         }) else null,
                         onLongPressPreview = if (insideFolder && !editing && appTarget) ({ interaction.openMenu?.invoke() }) else null,
                         onLongPressCancel = if (insideFolder && !editing && appTarget) ({ interaction.dismissHeldMenu?.invoke() }) else null,
                         onStationaryLongPress = when {
                             editing -> ({
-                                repository.selectComponent(child.id)
+                                layoutActions.selectComponent(child.id)
                                 quickMenuChildId = child.id
                             })
                             insideFolder -> ({
                                 if (appTarget) interaction.finishHoldMenu?.invoke()
                                 else {
-                                    repository.selectComponent(child.id)
+                                    layoutActions.selectComponent(child.id)
                                     quickMenuChildId = child.id
                                 }
                             })
@@ -425,17 +467,17 @@ internal fun NestedContainerComponents(
                         Box(
                             Modifier.fillMaxSize().cardLongPressToEdit(
                                 key = Triple(container.id, child.id, editing),
-                                enabled = !state.advancedConfig.layoutLocked && !editing && !appTarget && !child.type.isContainerType(),
+                                enabled = !state.layoutLocked && !editing && !appTarget && !child.type.isContainerType(),
                                 ignoreOwnedGesture = false,
                                 requireIdleOwnership = false
                             ) {
-                                repository.selectComponent(child.id)
+                                layoutActions.selectComponent(child.id)
                                 quickMenuChildId = child.id
                             }
                         ) {
                             CompositionLocalProvider(
                                 LocalInContainerChild provides true,
-                                LocalFolderItemInteraction provides if (insideFolder && !editing && appTarget) interaction else null,
+                                LocalFolderItemInteraction provides if (insideFolder && !editing && (appTarget || child.type == ComponentType.FOLDER)) interaction else null,
                                 LocalFolderGridSpacing provides if (grid && isContainerGridIconItem(child)) containerIconVerticalSpacing(container) else null,
                                 LocalFolderIconSizeDp provides if (grid) gridBounds[child.id]?.iconRenderSizeDp
                                     ?: containerIconSizeDp(container) else null
@@ -444,7 +486,7 @@ internal fun NestedContainerComponents(
                             }
                             if (editing && !(grid && isContainerGridIconItem(child))) IconButton(
                                 onClick = {
-                                    repository.selectComponent(child.id)
+                                    layoutActions.selectComponent(child.id)
                                     quickMenuChildId = child.id
                                 },
                                 modifier = Modifier.align(Alignment.TopEnd).size(48.dp)
@@ -453,9 +495,9 @@ internal fun NestedContainerComponents(
                                     .background(LocalCardColors.current.iconBackground.copy(alpha = 1f), CircleShape).padding(2.dp),
                                     tint = LocalCardColors.current.textSecondary)
                             }
-                            if (quickMenuChildId == child.id && !state.advancedConfig.layoutLocked) {
+                            if (quickMenuChildId == child.id && !state.layoutLocked) {
                                 PanelDropdownMenu(expanded = true, onDismissRequest = { quickMenuChildId = null }) {
-                                    com.example.globalminusone.service.Android12WindowKeyGuard()
+                                    com.example.globalminusone.ui.Android12WindowKeyGuard()
                                     if (child.type == ComponentType.FOLDER && folderReturn != null && !editing) {
                                         PanelMenuItem(text = { Text("打开文件夹") }) {
                                             quickMenuChildId = null
@@ -477,8 +519,8 @@ internal fun NestedContainerComponents(
                                         )
                                     }) {
                                         quickMenuChildId = null
-                                        if (folderEditAction != null) folderEditAction() else repository.setEditMode(!editing)
-                                        repository.selectComponent(child.id)
+                                        if (folderEditAction != null) folderEditAction() else layoutActions.setEditMode(!editing)
+                                        layoutActions.selectComponent(child.id)
                                     }
                                     PanelMenuItem(text = { Text("复制到…") }) {
                                         quickMenuChildId = null

@@ -30,8 +30,10 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.globalminusone.data.AppQuickSearchMatcher
 import com.example.globalminusone.system.AppAndIntentLauncher
 import com.example.globalminusone.system.InstalledAppInfo
+import com.example.globalminusone.ui.PlatformPinyinProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -56,7 +58,7 @@ internal fun IndexedAppDrawer(isEditMode: Boolean, onRequestClose: () -> Unit) {
         )
     }
     val environment = LocalAppMenuEnvironment.current
-    val appearances = rememberAppAppearanceOverrides(environment?.repository)
+    val appearances = rememberAppAppearanceOverrides(environment?.actions)
     var displayIndex by remember(indexedApps, appearances) {
         mutableStateOf(
             if (indexedApps.isEmpty() || appearances.values.none { it.displayName.isNotBlank() }) indexedApps
@@ -70,9 +72,36 @@ internal fun IndexedAppDrawer(isEditMode: Boolean, onRequestClose: () -> Unit) {
         )
     }
     var filter by remember { mutableStateOf("") }
-    val groups = remember(displayIndex, filter) {
-        if (filter.isBlank()) displayIndex
-        else filterAppGroups(displayIndex) { it.label.contains(filter, true) || it.packageName.contains(filter, true) }
+    val indexedSearchApps = remember(displayIndex) {
+        AppQuickSearchMatcher.indexApps(
+            apps = displayIndex.flatMap { it.apps },
+            label = { it.label },
+            packageName = { it.packageName },
+            provider = PlatformPinyinProvider.instance
+        )
+    }
+    val matchedPackages = remember(indexedSearchApps, filter) {
+        val q = filter.trim()
+        if (q.isEmpty()) null
+        else {
+            val clean = AppQuickSearchMatcher.cleanQuery(q)
+            val allNumeric = clean.isNotEmpty() && clean.all { ch -> ch in '0'..'9' }
+            val hits = AppQuickSearchMatcher.matchApps(
+                indexed = indexedSearchApps,
+                rawQuery = q,
+                t9Mode = allNumeric,
+                maxResults = indexedSearchApps.size.coerceAtLeast(1)
+            )
+            hits.mapTo(HashSet(hits.size * 2)) { it.packageName }
+        }
+    }
+    val groups = remember(displayIndex, matchedPackages, filter) {
+        if (matchedPackages == null) displayIndex
+        else filterAppGroups(displayIndex) {
+            it.packageName in matchedPackages ||
+                it.label.contains(filter, true) ||
+                it.packageName.contains(filter, true)
+        }
     }
     var loading by remember {
         mutableStateOf(
@@ -114,7 +143,8 @@ internal fun IndexedAppDrawer(isEditMode: Boolean, onRequestClose: () -> Unit) {
     } }
     val currentLetter = draggedLetter ?: visibleLetter
     val railTickHeight = with(LocalDensity.current) { 18.sp.toPx() + 2.dp.toPx() }
-    Column(Modifier.heightIn(max = LocalConfiguration.current.screenHeightDp.dp).fillMaxSize().ownPanelScrollGestures(!isEditMode, canScrollVertically = { dy -> if (dy < 0f) grid.canScrollForward else grid.canScrollBackward }).padding(6.dp)) {
+    val canScrollDrawer = !isEditMode && (grid.canScrollForward || grid.canScrollBackward)
+    Column(Modifier.heightIn(max = LocalConfiguration.current.screenHeightDp.dp).fillMaxSize().ownPanelScrollGestures(canScrollDrawer, canScrollVertically = { dy -> if (dy < 0f) grid.canScrollForward else grid.canScrollBackward }, axis = PanelGestureAxis.Vertical).padding(6.dp)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -148,7 +178,7 @@ internal fun IndexedAppDrawer(isEditMode: Boolean, onRequestClose: () -> Unit) {
             Row(Modifier.fillMaxSize()) {
             LazyVerticalGrid(
                 flingBehavior = rememberPanelFlingBehavior(),
-                columns = GridCells.Adaptive(48.dp), state = grid, userScrollEnabled = !isEditMode,
+                columns = GridCells.Adaptive(48.dp), state = grid, userScrollEnabled = canScrollDrawer,
                 modifier = Modifier.weight(1f).fillMaxHeight(),
                 horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
