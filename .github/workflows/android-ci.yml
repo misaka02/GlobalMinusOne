@@ -3,17 +3,16 @@ name: Android CI
 on:
   push:
     branches: [ main ]
-    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+  cancel-in-progress: true
 
 env:
   CI_GRADLE_JVMARGS: -Dorg.gradle.jvmargs=-Xmx3072m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8
@@ -83,79 +82,6 @@ jobs:
         with:
           name: GlobalMinusOne-release-apk
           path: app/build/outputs/apk/release/*.apk
-
-      - name: Publish GitHub Release
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
-          mkdir -p release-assets
-
-          RELEASE_APK=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' | head -n 1)
-          DEBUG_APK=$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' | head -n 1)
-          test -f "$RELEASE_APK"
-          test -f "$DEBUG_APK"
-
-          RELEASE_OUT="release-assets/GlobalMinusOne-${TAG}-release.apk"
-          DEBUG_OUT="release-assets/GlobalMinusOne-${TAG}-debug.apk"
-          cp "$RELEASE_APK" "$RELEASE_OUT"
-          cp "$DEBUG_APK" "$DEBUG_OUT"
-          (cd release-assets && sha256sum "$(basename "$RELEASE_OUT")" "$(basename "$DEBUG_OUT")" > SHA256SUMS.txt)
-
-          export TAG
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-
-          tag = os.environ["TAG"]
-          custom_signing = os.environ.get("CUSTOM_SIGNING", "false") == "true"
-          sums = Path("release-assets/SHA256SUMS.txt").read_text(encoding="utf-8").strip()
-
-          if custom_signing:
-              signing_note = "已使用仓库配置的正式发布密钥完成签名。"
-          else:
-              signing_note = (
-                  "当前未配置仓库正式签名 Secrets（`GMO_SIGNING_*`），"
-                  "云端构建的 `release.apk` 使用 CI 临时 `debug` 回退签名，"
-                  "**仅用于功能体验与测试**；不同 CI 运行次之间的临时签名无法直接覆盖升级。"
-              )
-
-          notes = f"""## GlobalMinusOne {tag}
-
-          ### 项目来源与开发声明
-          - **项目来源**：本项目灵感与核心交互理念源于**已停更的原 Android 应用《全局负一屏》**（原闭源软件），在其使用场景启发下独立重写并开源发布，以延续该效率工具在现代 Android（`targetSdk 36`）上的可用性与可维护性；与原闭源版本及原作者无任何隶属、授权或官方延续关系。
-          - **AI 开发声明（AI-Developed / AI-Assisted）**：本项目主要由 **AI 辅助与主导完成架构设计、Kotlin + Jetpack Compose 实现、重构及测试编写**，由 [`misaka02`](https://github.com/misaka02) 维护并基于 [Apache License 2.0](https://github.com/misaka02/GlobalMinusOne/blob/main/LICENSE) 开源。
-          - **项目仓库**：https://github.com/misaka02/GlobalMinusOne ｜ **问题反馈**：https://github.com/misaka02/GlobalMinusOne/issues
-
-          ### 发布安装包说明
-          - `GlobalMinusOne-{tag}-release.apk`：开启 R8 代码混淆与资源压缩的 Release 构建包（推荐日常安装测试）。
-          - `GlobalMinusOne-{tag}-debug.apk`：未开启压缩与混淆的 Debug 构建包，便于开发排查与日志分析。
-          - `SHA256SUMS.txt`：上述安装包的 SHA-256 校验值清单。
-
-          ### 签名与验证范围提示
-          - {signing_note}
-          - 本次发布包由 GitHub Actions 云端自动构建生成，已通过 JVM 单元测试（`:app:testDebugUnitTest`）、`:app:compileDebugAndroidTestKotlin` 与 Android Lint（`:app:lintDebug`）；真机/模拟器 UI 交互需在目标设备上按需验证。
-
-          ### SHA-256 校验值
-          ```text
-          {sums}
-          ```
-          """
-          import textwrap
-          Path("release-assets/RELEASE_NOTES.md").write_text(textwrap.dedent(notes), encoding="utf-8")
-          PY
-
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$RELEASE_OUT" "$DEBUG_OUT" release-assets/SHA256SUMS.txt --clobber
-            gh release edit "$TAG" --title "GlobalMinusOne ${TAG}" --notes-file release-assets/RELEASE_NOTES.md --latest
-          else
-            gh release create "$TAG" "$RELEASE_OUT" "$DEBUG_OUT" release-assets/SHA256SUMS.txt \
-              --title "GlobalMinusOne ${TAG}" \
-              --notes-file release-assets/RELEASE_NOTES.md \
-              --latest
-          fi
 
       - name: Upload Lint reports on failure
         if: failure()
