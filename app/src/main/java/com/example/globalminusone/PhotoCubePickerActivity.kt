@@ -11,7 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
 import com.example.globalminusone.data.MinusOneRepository
 import com.example.globalminusone.service.OverlayService
-import com.example.globalminusone.system.PanelFileBrowser
+import com.example.globalminusone.system.file.PanelFileBrowser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -23,7 +23,7 @@ import kotlinx.coroutines.flow.first
 
 /** Exact destination IDs survive system-picker recreation; never falls back to another page. */
 class PhotoCubePickerActivity : ComponentActivity() {
-    private data class Destination(val page: String, val component: String?, val container: String?, val before: String?)
+    private data class Destination(val page: String, val component: String?, val container: String?, val before: String?, val gridCell: Pair<Int, Int>?)
     private lateinit var destination: Destination
     private var processing = false
     private var completed = false
@@ -57,7 +57,7 @@ class PhotoCubePickerActivity : ComponentActivity() {
                 ensureActive()
                 val saved = accepted.isNotEmpty() && !isFinishing && !isDestroyed &&
                     MinusOneRepository.getInstance(this@PhotoCubePickerActivity).savePhotoCube(
-                        target.page, target.component, accepted.map { it.toString() }, target.container, target.before)
+                        target.page, target.component, accepted.map { it.toString() }, target.container, target.before, target.gridCell)
                 if (saved) retained = accepted.toSet()
                 finishPicker(if (saved) "已保存 ${accepted.size} 张图片" else "图片不可读取、布局锁定或原目标已失效，未保存")
             } catch (cancelled: CancellationException) {
@@ -76,8 +76,10 @@ class PhotoCubePickerActivity : ComponentActivity() {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val gc = intent.getIntExtra("target_grid_col", -1); val gr = intent.getIntExtra("target_grid_row", -1)
         destination = Destination(intent.getStringExtra("page_id").orEmpty(), intent.getStringExtra("component_id"),
-            intent.getStringExtra("container_id"), intent.getStringExtra("before_component_id"))
+            intent.getStringExtra("container_id"), intent.getStringExtra("before_component_id"),
+            if (gc >= 0 && gr >= 0) gc to gr else null)
         launched = savedInstanceState?.getBoolean("launched") ?: false
         onBackPressedDispatcher.addCallback(this) { finishPicker("已取消选择图片") }
         if (savedInstanceState?.getBoolean("processing") == true) {
@@ -106,10 +108,11 @@ class PhotoCubePickerActivity : ComponentActivity() {
         PanelFileBrowser.completeAccess(this, message.orEmpty(), returnToBrowser = false)
     }
     companion object {
-        fun start(context: Context, pageId: String, componentId: String? = null, containerId: String? = null, beforeId: String? = null) {
+        fun start(context: Context, pageId: String, componentId: String? = null, containerId: String? = null, beforeId: String? = null, targetGridCell: Pair<Int, Int>? = null) {
             context.startActivity(Intent(context, PhotoCubePickerActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 .putExtra("page_id", pageId).putExtra("component_id", componentId)
-                .putExtra("container_id", containerId).putExtra("before_component_id", beforeId))
+                .putExtra("container_id", containerId).putExtra("before_component_id", beforeId)
+                .apply { targetGridCell?.let { putExtra("target_grid_col", it.first); putExtra("target_grid_row", it.second) } })
         }
     }
 }

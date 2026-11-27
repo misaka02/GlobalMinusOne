@@ -6,6 +6,8 @@ import org.junit.Test
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
+import com.example.globalminusone.system.file.SafTextRecoveryStore
+import com.example.globalminusone.system.file.textFingerprint
 
 class SafTextRecoveryTest {
     private val original = "原始文件\noriginal".toByteArray()

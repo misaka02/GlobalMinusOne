@@ -1,24 +1,47 @@
 package com.example.globalminusone.service
 
 import android.view.WindowManager
-import org.junit.Assert.*
+import com.example.globalminusone.service.overlay.PanelWindowBackend
+import com.example.globalminusone.service.overlay.PanelWindowHost
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 class PanelWindowHostTest {
     private class FakeBackend : PanelWindowBackend<Any, String> {
         override val defaultManager = "ordinary"
         override var manager = defaultManager
-        private val root = Any()
+            private set
+        private var currentView = Any()
         var viewReads = 0
-        override val view: Any get() { viewReads++; return root }
+        val createdViews = mutableListOf<Any>()
+        override val view: Any get() { viewReads++; return currentView }
         override var type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            private set
         val calls = mutableListOf<String>()
         var onOperation: (String) -> Unit = {}
+
+        override fun prepareForAttach(targetType: Int, targetManager: String) {
+            type = targetType
+            manager = targetManager
+            currentView = Any()
+            createdViews += currentView
+            calls += "prepare:$manager:$type"
+            onOperation("prepare")
+        }
+
         private fun perform(operation: String, view: Any) {
-            assertSame(root, view)
+            assertSame(currentView, view)
             calls += "$operation:$manager:$type"
             onOperation(operation)
         }
+
         override fun update(view: Any) = perform("update", view)
         override fun removeImmediate(view: Any) = perform("remove", view)
         override fun add(view: Any) = perform("add", view)
@@ -37,32 +60,76 @@ class PanelWindowHostTest {
         f.recover(resolver = { error("ordinary layer must not resolve accessibility") })
         f.recover(highest = true, available = false, resolver = { error("unavailable accessibility") })
         assertTrue(f.host.registered)
-        assertEquals(listOf("add:ordinary:2038", "update:ordinary:2038"), f.backend.calls)
+        assertEquals(listOf("prepare:ordinary:2038", "add:ordinary:2038", "update:ordinary:2038"), f.backend.calls)
+        assertEquals(1, f.backend.createdViews.size)
         assertEquals(2, f.backend.viewReads)
         assertTrue(f.failures.isEmpty())
     }
 
-    @Test fun migrationResolvesBeforeRemovalAndPublishesNewResourcesBeforeAdd() {
+    @Test fun migrationResolvesBeforeRemovalAndRebuildsFreshRootBeforeAdd() {
         val f = Fixture()
         f.recover()
+        val firstView = f.backend.createdViews.single()
         f.backend.calls.clear()
         val sequence = mutableListOf<String>()
         f.backend.onOperation = { op ->
             sequence += op
-            if (op == "remove") {
-                assertTrue(f.host.registered)
-                assertEquals("ordinary", f.backend.manager)
-                assertEquals(2038, f.backend.type)
-            } else if (op == "add") {
-                assertFalse(f.host.registered)
-                assertEquals("accessibility", f.backend.manager)
-                assertEquals(2032, f.backend.type)
+            when (op) {
+                "remove" -> {
+                    assertTrue(f.host.registered)
+                    assertEquals("ordinary", f.backend.manager)
+                    assertEquals(2038, f.backend.type)
+                }
+                "add" -> {
+                    assertFalse(f.host.registered)
+                    assertEquals("accessibility", f.backend.manager)
+                    assertEquals(2032, f.backend.type)
+                }
             }
         }
         f.recover(highest = true, resolver = { sequence += "resolve"; "accessibility" })
-        assertEquals(listOf("resolve", "remove", "add"), sequence)
+        assertEquals(listOf("resolve", "remove", "prepare", "add"), sequence)
         assertTrue(f.host.registered)
-        assertEquals(listOf("remove:ordinary:2038", "add:accessibility:2032"), f.backend.calls)
+        assertEquals(2, f.backend.createdViews.size)
+        assertNotSame(firstView, f.backend.createdViews.last())
+        assertEquals(listOf("remove:ordinary:2038", "prepare:accessibility:2032", "add:accessibility:2032"), f.backend.calls)
+    }
+
+    @Test fun togglingHighestOverlayOnOffOnRebuildsFreshViewEachTime() {
+        val f = Fixture()
+        f.recover(highest = false)
+        f.recover(highest = true, resolver = { "accessibility" })
+        f.recover(highest = false)
+        f.recover(highest = true, resolver = { "accessibility" })
+        assertEquals(4, f.backend.createdViews.distinct().size)
+        assertEquals(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, f.host.activeType)
+        assertTrue(f.failures.isEmpty())
+    }
+
+    @Test fun accessibilityManagerReconnectMigratesEvenWhenTypeUnchanged() {
+        val f = Fixture()
+        val accOne = String("accessibility-1".toCharArray())
+        val accTwo = String("accessibility-2".toCharArray())
+        f.recover(highest = true, resolver = { accOne })
+        val firstAccView = f.backend.createdViews.last()
+        f.backend.calls.clear()
+
+        f.recover(highest = true, resolver = { accTwo })
+        assertEquals(
+            listOf("remove:accessibility-1:2032", "prepare:accessibility-2:2032", "add:accessibility-2:2032"),
+            f.backend.calls
+        )
+        assertNotSame(firstAccView, f.backend.createdViews.last())
+        assertTrue(f.host.registered)
+    }
+
+    @Test fun nullAccessibilityManagerFallsBackToOrdinaryWithoutAddingAccessibilityTypeOnDefaultManager() {
+        val f = Fixture()
+        f.recover()
+        f.backend.calls.clear()
+        f.recover(highest = true, resolver = { null })
+        assertEquals(listOf("update:ordinary:2038"), f.backend.calls)
+        assertEquals(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, f.backend.type)
     }
 
     @Test fun unsafeMigrationRemovalIncludingErrorPreservesOldRegistration() {
@@ -86,23 +153,36 @@ class PanelWindowHostTest {
         f.recover()
         f.backend.calls.clear()
         f.backend.onOperation = { if (it == "remove") throw IllegalArgumentException("gone") }
-        f.recover(highest = true, resolver = { null })
+        f.recover(highest = true, resolver = { "accessibility" })
         assertTrue(f.host.registered)
         assertEquals(2032, f.backend.type)
-        assertEquals("ordinary", f.backend.manager)
-        assertEquals(listOf("remove:ordinary:2038", "add:ordinary:2032"), f.backend.calls)
+        assertEquals("accessibility", f.backend.manager)
+        assertEquals(listOf("remove:ordinary:2038", "prepare:accessibility:2032", "add:accessibility:2032"), f.backend.calls)
         assertTrue(f.failures.isEmpty())
     }
 
-    @Test fun accessibilityAddFailureCleansUpThenFallsBackAndCachesFailure() {
+    @Test fun accessibilityFailureRecordsLastErrorAndFallbackRebuildsOrdinaryView() {
         val f = Fixture()
         f.backend.onOperation = {
-            if (it == "add" && f.backend.type == 2032) throw IllegalStateException("accessibility add")
+            if (it == "add" && f.backend.type == 2032) throw IllegalStateException("accessibility add denied")
         }
         f.recover(highest = true)
         assertTrue(f.host.registered)
-        assertEquals(listOf("add:accessibility:2032", "remove:accessibility:2032", "add:ordinary:2038"), f.backend.calls)
+        assertEquals(2, f.backend.createdViews.distinct().size)
+        assertEquals(
+            listOf(
+                "prepare:accessibility:2032",
+                "add:accessibility:2032",
+                "remove:accessibility:2032",
+                "prepare:ordinary:2038",
+                "add:ordinary:2038"
+            ),
+            f.backend.calls
+        )
         assertEquals("Cannot register panel overlay window", f.failures.single().first)
+        assertNotNull(f.host.lastAccessibilityError)
+        assertTrue(f.host.lastAccessibilityError!!.contains("IllegalStateException"))
+
         f.backend.calls.clear()
         f.recover(highest = true, resolver = { error("cached failure must short circuit resolution") })
         assertEquals(listOf("update:ordinary:2038"), f.backend.calls)
@@ -115,14 +195,20 @@ class PanelWindowHostTest {
             if (it == "add" && f.backend.type == 2032) throw IllegalStateException("first add")
         }
         f.recover(highest = true)
+        assertNotNull(f.host.lastAccessibilityError)
         f.backend.calls.clear()
         f.backend.onOperation = {}
         f.host.resetAccessibilityFailure()
+        assertNull(f.host.lastAccessibilityError)
         assertTrue(f.host.registered)
         assertEquals("ordinary", f.backend.manager)
         f.recover(highest = true)
-        assertEquals(listOf("remove:ordinary:2038", "add:accessibility:2032"), f.backend.calls)
+        assertEquals(
+            listOf("remove:ordinary:2038", "prepare:accessibility:2032", "add:accessibility:2032"),
+            f.backend.calls
+        )
         assertTrue(f.host.registered)
+        assertNull(f.host.lastAccessibilityError)
     }
 
     @Test fun ordinaryAndFallbackAddFailuresRemainUnregisteredAndCleanUp() {
@@ -130,28 +216,42 @@ class PanelWindowHostTest {
         ordinary.backend.onOperation = { if (it == "add") throw IllegalStateException("add") }
         ordinary.recover()
         assertFalse(ordinary.host.registered)
-        assertEquals(listOf("add:ordinary:2038", "remove:ordinary:2038"), ordinary.backend.calls)
+        assertEquals(listOf("prepare:ordinary:2038", "add:ordinary:2038", "remove:ordinary:2038"), ordinary.backend.calls)
         assertEquals("Cannot register panel overlay window", ordinary.failures.single().first)
         val fallback = Fixture()
         fallback.backend.onOperation = { if (it == "add") throw IllegalStateException("add") }
         fallback.recover(highest = true)
         assertFalse(fallback.host.registered)
-        assertEquals(listOf("add:accessibility:2032", "remove:accessibility:2032", "add:ordinary:2038", "remove:ordinary:2038"), fallback.backend.calls)
+        assertEquals(
+            listOf(
+                "prepare:accessibility:2032",
+                "add:accessibility:2032",
+                "remove:accessibility:2032",
+                "prepare:ordinary:2038",
+                "add:ordinary:2038",
+                "remove:ordinary:2038"
+            ),
+            fallback.backend.calls
+        )
         assertEquals(listOf("Cannot register panel overlay window", "Cannot restore ordinary panel overlay"), fallback.failures.map { it.first })
     }
 
-    @Test fun staleUpdateAndAlreadyRemovedRootRecoverInOriginalOrder() {
+    @Test fun staleUpdateAndAlreadyRemovedRootRecoverWithFreshView() {
         val f = Fixture()
         f.recover()
+        val initialView = f.backend.createdViews.single()
         f.backend.calls.clear()
         f.backend.onOperation = {
             if (it == "update") throw IllegalStateException("stale update")
             if (it == "remove") throw IllegalArgumentException("already removed")
-            if (it == "add") assertTrue(f.host.registered) // Assignment still follows the whole helper call.
         }
         f.recover()
-        assertEquals(listOf("update:ordinary:2038", "remove:ordinary:2038", "add:ordinary:2038"), f.backend.calls)
+        assertEquals(
+            listOf("update:ordinary:2038", "remove:ordinary:2038", "prepare:ordinary:2038", "add:ordinary:2038"),
+            f.backend.calls
+        )
         assertEquals(2, f.failures.size)
+        assertNotSame(initialView, f.backend.createdViews.last())
         assertTrue(f.host.registered)
     }
 

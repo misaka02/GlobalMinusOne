@@ -5,6 +5,17 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.policy.ContainerActionGeometry
+import com.example.globalminusone.data.ContainerLayoutType
+import com.example.globalminusone.data.QuickActionItem
+import com.example.globalminusone.data.policy.arrangeContainerChildren
+import com.example.globalminusone.data.policy.commitContainerActionGeometry
+import com.example.globalminusone.data.policy.containerActionGeometry
+import com.example.globalminusone.data.policy.containerPopupColumns
+import com.example.globalminusone.data.policy.containerPopupHeightDp
+import com.example.globalminusone.data.policy.containerPopupWidthDp
 
 class FolderEditingPolicyTest {
     private val json = Json { encodeDefaults = true; ignoreUnknownKeys = true }

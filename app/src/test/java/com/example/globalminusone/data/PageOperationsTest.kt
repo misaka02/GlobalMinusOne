@@ -4,6 +4,11 @@ import android.content.SharedPreferences
 import com.example.globalminusone.MemoryPreferences
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.storage.ConfigurationCodec
+import com.example.globalminusone.data.policy.GRID_SPAN_FULL_ROW
+import com.example.globalminusone.data.operations.PageOperations
+import com.example.globalminusone.data.policy.PagePresetOption
+import com.example.globalminusone.data.policy.fitPageGridColumns
 
 class PageOperationsTest {
     @Test fun newPagesGenerateOperationBarIdBeforePageIdAndKeepOriginalDefaultsAndNames() {

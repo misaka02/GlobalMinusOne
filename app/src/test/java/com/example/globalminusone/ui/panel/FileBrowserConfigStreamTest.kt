@@ -10,6 +10,12 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.FileBrowserBookmark
+import com.example.globalminusone.data.FileBrowserConfig
+import com.example.globalminusone.data.FileBrowserRoot
+import com.example.globalminusone.data.FileBrowserSortOrder
+import com.example.globalminusone.data.GlobalMinusOneState
+import com.example.globalminusone.ui.panel.file.FileBrowserConfigStream
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class FileBrowserConfigStreamTest {

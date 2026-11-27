@@ -7,6 +7,38 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import java.util.UUID
+import com.example.globalminusone.data.operations.ComponentGridOperations
+import com.example.globalminusone.data.operations.ComponentInsertionOperations
+import com.example.globalminusone.data.operations.ComponentPlacementOperations
+import com.example.globalminusone.data.operations.ComponentRemovalOperations
+import com.example.globalminusone.data.operations.ComponentTransferOperations
+import com.example.globalminusone.data.operations.ComponentUpdateOperations
+import com.example.globalminusone.data.operations.ConfigProfileOperations
+import com.example.globalminusone.data.storage.ConfigurationCodec
+import com.example.globalminusone.data.storage.ConfigurationStore
+import com.example.globalminusone.data.operations.PageOperations
+import com.example.globalminusone.data.policy.PagePresetOption
+import com.example.globalminusone.data.operations.PickedCardOperations
+import com.example.globalminusone.data.operations.RepositoryStateOperations
+import com.example.globalminusone.data.operations.SubPanelConfig
+import com.example.globalminusone.data.operations.SubPanelLibraryOperations
+import com.example.globalminusone.data.operations.SubPanelOperations
+import com.example.globalminusone.data.operations.SubPanelTemplate
+import com.example.globalminusone.data.operations.UserContentOperations
+import com.example.globalminusone.data.policy.buildPagePresetConfig
+import com.example.globalminusone.data.policy.componentDisplayRows
+import com.example.globalminusone.data.operations.componentPath
+import com.example.globalminusone.data.policy.containerPopupWidthDp
+import com.example.globalminusone.data.operations.findComponent
+import com.example.globalminusone.data.policy.fitPageGridColumns
+import com.example.globalminusone.data.policy.nextComponentPlacementY
+import com.example.globalminusone.data.policy.normalizedPanelGeometry
+import com.example.globalminusone.data.policy.prepareFileShortcutCard
+import com.example.globalminusone.data.policy.prepareStatisticsCard
+import com.example.globalminusone.data.operations.savedWidgetIds
+import com.example.globalminusone.data.operations.transformComponent
+import com.example.globalminusone.data.operations.validateComponentTrees
+import com.example.globalminusone.data.operations.withRemovedComponentWidgets
 
 class MinusOneRepository internal constructor(prefs: SharedPreferences) {
 
@@ -82,7 +114,8 @@ class MinusOneRepository internal constructor(prefs: SharedPreferences) {
         nextComponentPlacementY(page, containerId, state.advancedConfig.gridColumns, measuredPanelWidthDp,
             state.advancedConfig.heightUnitDp, measuredFontScale)
 
-
+    private val _overlayLayerStatus = MutableStateFlow(OverlayLayerStatus())
+    val overlayLayerStatus: StateFlow<OverlayLayerStatus> = _overlayLayerStatus.asStateFlow()
     private val _currentForegroundPackage = MutableStateFlow("")
     val currentForegroundPackage: StateFlow<String> = _currentForegroundPackage.asStateFlow()
 
@@ -153,6 +186,8 @@ class MinusOneRepository internal constructor(prefs: SharedPreferences) {
         _currentForegroundPackage.value = packageName
     }
 
+    fun updateOverlayLayerStatus(status: OverlayLayerStatus) { _overlayLayerStatus.value = status }
+
     // --- 页面管理 ---
 
     fun setCurrentPageIndex(index: Int) {
@@ -170,15 +205,10 @@ class MinusOneRepository internal constructor(prefs: SharedPreferences) {
         panelEditBaseline = PanelEditSnapshot(_state.value)
         val accepted = updateState { current ->
             if (enabled && current.advancedConfig.layoutLocked) return@updateState current
-            val defaultCompId = if (enabled && current.selectedComponentId == null) {
-                val p = current.pages.getOrNull(current.currentPageIndex)
-                p?.components?.getOrNull(1)?.id ?: p?.components?.firstOrNull()?.id
-            } else if (!enabled) {
-                null
-            } else {
-                current.selectedComponentId
-            }
-            current.copy(editMode = enabled, selectedComponentId = defaultCompId)
+            current.copy(
+                editMode = enabled,
+                selectedComponentId = if (enabled) current.selectedComponentId else null
+            )
         }
         if (!accepted) panelEditBaseline = null
         return accepted
@@ -229,11 +259,13 @@ class MinusOneRepository internal constructor(prefs: SharedPreferences) {
     /**
      * 新建一页，返回新页在列表中的下标
      */
-    fun addPage(layoutType: PageLayoutType, name: String = ""): Int {
+    fun addPage(layoutType: PageLayoutType, name: String = "", subPanelId: String = ""): Int {
         var newIndex = -1
         val accepted = updateState { current ->
             if (current.advancedConfig.layoutLocked) return@updateState current
-            val newPage = PageOperations.createPage(layoutType, name, current.pages.size + 1) { UUID.randomUUID().toString() }
+            if (subPanelId.isNotEmpty() && current.subPanels.none { it.id == subPanelId }) return@updateState current
+            val ownedCount = current.pages.count { it.subPanelId == subPanelId }
+            val newPage = PageOperations.createPage(layoutType, name, ownedCount + 1, subPanelId) { UUID.randomUUID().toString() }
             val updatedPages = current.pages + newPage
             newIndex = updatedPages.size - 1
             current.copy(
@@ -248,8 +280,8 @@ class MinusOneRepository internal constructor(prefs: SharedPreferences) {
     /**
      * 使用预置模板新建一页并自动切换过去，受布局锁保护
      */
-    fun addPagePreset(preset: PagePresetOption, name: String = ""): Int {
-        if (!preset.isPreset) return addPage(preset.layoutType, name)
+    fun addPagePreset(preset: PagePresetOption, name: String = "", subPanelId: String = ""): Int {
+        if (!preset.isPreset) return addPage(preset.layoutType, name, subPanelId = subPanelId)
         var newIndex = -1
         val accepted = updateState { current ->
             if (current.advancedConfig.layoutLocked) return@updateState current
@@ -260,7 +292,7 @@ class MinusOneRepository internal constructor(prefs: SharedPreferences) {
                 preset = preset,
                 customName = cleanName.ifEmpty { defaultName },
                 estimatedGridWidthDp = estimatedPageGridWidthDp()
-            )
+            ).copy(subPanelId = subPanelId)
             val updatedPages = current.pages + built
             newIndex = updatedPages.size - 1
             current.copy(
@@ -272,65 +304,80 @@ class MinusOneRepository internal constructor(prefs: SharedPreferences) {
         return if (accepted) newIndex else -1
     }
 
-    /**
-     * 删除当前指定页，至少保留 1 页
-     */
-    fun deletePage(pageIndex: Int): Boolean {
-        var success = false
-        val accepted = updateState { current ->
-            if (current.advancedConfig.layoutLocked) return@updateState current
-            val change = PageOperations.delete(current.pages, current.currentPageIndex, pageIndex) ?: return@updateState current
-            success = true
-            current.copy(pages = change.pages, currentPageIndex = change.activeIndex, selectedComponentId = null)
-        }
-        return accepted && success
+    private inline fun mutateBool(crossinline transform: (GlobalMinusOneState) -> GlobalMinusOneState?): Boolean {
+        var applied = false
+        val accepted = updateState { current -> transform(current)?.also { applied = true } ?: current }
+        return accepted && applied
     }
 
-    /**
-     * 与左侧相邻页交换顺序
-     */
-    fun swapPageLeft(pageIndex: Int): Boolean {
-        var success = false
+    private inline fun <T> mutateWith(crossinline transform: (GlobalMinusOneState) -> Pair<GlobalMinusOneState, T>?): T? {
+        var out: T? = null
         val accepted = updateState { current ->
-            if (current.advancedConfig.layoutLocked) return@updateState current
-            val change = PageOperations.swapLeft(current.pages, pageIndex) ?: return@updateState current
-            success = true
-            current.copy(pages = change.pages, currentPageIndex = change.activeIndex)
+            val res = transform(current) ?: return@updateState current
+            out = res.second
+            res.first
         }
-        return accepted && success
+        return if (accepted) out else null
     }
 
-    /**
-     * 与右侧相邻页交换顺序
-     */
-    fun swapPageRight(pageIndex: Int): Boolean {
-        var success = false
-        val accepted = updateState { current ->
-            if (current.advancedConfig.layoutLocked) return@updateState current
-            val change = PageOperations.swapRight(current.pages, pageIndex) ?: return@updateState current
-            success = true
-            current.copy(pages = change.pages, currentPageIndex = change.activeIndex)
+    fun deletePage(pageIndex: Int): Boolean = mutateBool { current ->
+        if (current.advancedConfig.layoutLocked) null
+        else PageOperations.delete(current.pages, current.currentPageIndex, pageIndex)?.let {
+            current.copy(pages = it.pages, currentPageIndex = it.activeIndex, selectedComponentId = null)
         }
-        return accepted && success
     }
 
-    fun updatePageConfig(pageIndex: Int, transform: (PageConfig) -> PageConfig): Boolean {
-        var valid = false
-        val accepted = updateState { current ->
-            if (current.advancedConfig.layoutLocked) return@updateState current
-            val updated = PageOperations.update(current.pages, pageIndex, transform) ?: return@updateState current
-            valid = true
-            current.copy(pages = updated)
+    fun swapPageLeft(pageIndex: Int): Boolean = mutateBool { current ->
+        if (current.advancedConfig.layoutLocked) null
+        else PageOperations.swapLeft(current.pages, pageIndex)?.let {
+            current.copy(pages = it.pages, currentPageIndex = it.activeIndex)
         }
-        return accepted && valid
+    }
+
+    fun swapPageRight(pageIndex: Int): Boolean = mutateBool { current ->
+        if (current.advancedConfig.layoutLocked) null
+        else PageOperations.swapRight(current.pages, pageIndex)?.let {
+            current.copy(pages = it.pages, currentPageIndex = it.activeIndex)
+        }
+    }
+
+    fun updatePageConfig(pageIndex: Int, transform: (PageConfig) -> PageConfig): Boolean = mutateBool { current ->
+        if (current.advancedConfig.layoutLocked) null
+        else PageOperations.update(current.pages, pageIndex, transform)?.let { current.copy(pages = it) }
     }
 
     fun updatePageGridStyle(pageIndex: Int, itemSizeDp: Int? = null, itemGapDp: Int? = null,
-        columnCount: Int? = null, iconSizeDp: Int? = null, rowGapDp: Int? = null): Boolean {
+        columnCount: Int? = null, iconSizeDp: Int? = null, rowGapDp: Int? = null,
+        rowCount: Int? = null, autoRows: Boolean? = null): Boolean {
         return updatePageConfig(pageIndex) { page ->
-            PageOperations.gridStyle(page, itemSizeDp, itemGapDp, columnCount, iconSizeDp, rowGapDp)
+            PageOperations.gridStyle(page, itemSizeDp, itemGapDp, columnCount, iconSizeDp, rowGapDp, rowCount, autoRows)
         }
     }
+
+    fun createSubPanel(name: String, inheritGeometry: Boolean = true, defaultLayout: PageLayoutType = PageLayoutType.GRID): SubPanelConfig? =
+        mutateWith { SubPanelOperations.create(it, name, inheritGeometry, defaultLayout) { UUID.randomUUID().toString() } }
+
+    fun updateSubPanel(subPanelId: String, transform: (SubPanelConfig) -> SubPanelConfig): Boolean =
+        mutateBool { SubPanelOperations.update(it, subPanelId, transform) }
+
+    fun deleteSubPanel(subPanelId: String): Boolean =
+        mutateBool { SubPanelOperations.delete(it, subPanelId) }
+
+    fun saveSubPanelToLibrary(subPanelId: String, templateName: String? = null): SubPanelTemplate? =
+        mutateWith {
+            SubPanelLibraryOperations.saveSubPanelToLibrary(it, subPanelId, templateName, System.currentTimeMillis()) {
+                UUID.randomUUID().toString()
+            }
+        }
+
+    fun createSubPanelFromLibrary(templateId: String, customName: String? = null): SubPanelConfig? =
+        mutateWith { SubPanelLibraryOperations.instantiateFromLibrary(it, templateId, customName) { UUID.randomUUID().toString() } }
+
+    fun renameSubPanelTemplate(templateId: String, newName: String): Boolean =
+        mutateBool { SubPanelLibraryOperations.renameTemplate(it, templateId, newName) }
+
+    fun deleteSubPanelTemplate(templateId: String): Boolean =
+        mutateBool { SubPanelLibraryOperations.deleteTemplate(it, templateId) }
 
     @Synchronized
     fun fitPageGridColumnCount(pageIndex: Int, columns: Int, availableWidthDp: Float) {
@@ -453,7 +500,13 @@ class MinusOneRepository internal constructor(prefs: SharedPreferences) {
         return accepted && added
     }
 
-    fun placeMenuComponent(pageId: String, containerId: String?, item: ComponentItem, beforeId: String? = null): Boolean {
+    fun placeMenuComponent(
+        pageId: String,
+        containerId: String?,
+        item: ComponentItem,
+        beforeId: String? = null,
+        targetGridCell: Pair<Int, Int>? = null
+    ): Boolean {
         var added = false
         val accepted = updateState { current ->
             added = false
@@ -465,10 +518,13 @@ class MinusOneRepository internal constructor(prefs: SharedPreferences) {
                 page = page, containerId = containerId, item = item, beforeId = beforeId,
                 columns = current.advancedConfig.gridColumns,
                 nextY = { nextPlacementY(current, page, containerId) },
-                rows = { placed -> insertionRows(current, placed) }
+                rows = { placed -> insertionRows(current, placed) },
+                targetGridCell = targetGridCell,
+                availableWidthDp = estimatedPageGridWidthDp(),
+                fontScale = measuredFontScale,
+                heightUnitDp = current.advancedConfig.heightUnitDp
             ) ?: return@updateState current
-            val components = candidate.components
-            val pages = current.pages.toMutableList().apply { this[index] = page.copy(components = components) }
+            val pages = current.pages.toMutableList().apply { this[index] = page.copy(components = candidate.components) }
             if (runCatching { validateComponentTrees(pages) }.isFailure) return@updateState current
             added = true
             current.copy(pages = pages, selectedComponentId = candidate.placedId)
@@ -550,25 +606,22 @@ class MinusOneRepository internal constructor(prefs: SharedPreferences) {
         return accepted && transferred
     }
 
-    fun saveFileShortcut(pageId: String, componentId: String?, title: String, uri: String, containerId: String? = null, beforeId: String? = null): Boolean =
-        savePickedCard(pageId, componentId, title, uri, ComponentType.FILE_SHORTCUT, containerId, beforeId)
+    fun saveFileShortcut(pageId: String, componentId: String?, title: String, uri: String, containerId: String? = null, beforeId: String? = null, targetGridCell: Pair<Int, Int>? = null): Boolean =
+        savePickedCard(pageId, componentId, title, uri, ComponentType.FILE_SHORTCUT, containerId, beforeId, targetGridCell = targetGridCell)
 
-    fun saveImageCard(pageId: String, componentId: String?, title: String, uri: String, containerId: String? = null, beforeId: String? = null): Boolean =
-        savePickedCard(pageId, componentId, title, uri, ComponentType.SINGLE_IMAGE, containerId, beforeId)
+    fun saveImageCard(pageId: String, componentId: String?, title: String, uri: String, containerId: String? = null, beforeId: String? = null, targetGridCell: Pair<Int, Int>? = null): Boolean =
+        savePickedCard(pageId, componentId, title, uri, ComponentType.SINGLE_IMAGE, containerId, beforeId, targetGridCell = targetGridCell)
             .also { if (it) notifyImageAccessChanged(uri) }
 
-    fun savePhotoCube(pageId: String, componentId: String?, uris: List<String>,
-        containerId: String? = null, beforeId: String? = null): Boolean {
+    fun savePhotoCube(pageId: String, componentId: String?, uris: List<String>, containerId: String? = null, beforeId: String? = null, targetGridCell: Pair<Int, Int>? = null): Boolean {
         val images = uris.distinct().take(100)
         if (images.isEmpty() || images.any { !PickedCardOperations.validContentUri(it) }) return false
-        return savePickedCard(pageId, componentId, "图片魔方", images.first(), ComponentType.PHOTO_CUBE,
-            containerId, beforeId, images).also { saved ->
-                if (saved) images.forEach(::notifyImageAccessChanged)
-            }
+        return savePickedCard(pageId, componentId, "图片魔方", images.first(), ComponentType.PHOTO_CUBE, containerId, beforeId, images, targetGridCell)
+            .also { saved -> if (saved) images.forEach(::notifyImageAccessChanged) }
     }
 
     /** Recheck the destination when the system picker returns, rather than trusting old indices. */
-    private fun savePickedCard(pageId: String, componentId: String?, title: String, uri: String, type: ComponentType, containerId: String?, beforeId: String?, uris: List<String> = emptyList()): Boolean {
+    private fun savePickedCard(pageId: String, componentId: String?, title: String, uri: String, type: ComponentType, containerId: String?, beforeId: String?, uris: List<String> = emptyList(), targetGridCell: Pair<Int, Int>? = null): Boolean {
         if (!PickedCardOperations.validContentUri(uri)) return false
         var saved = false
         val accepted = updateState { current ->
@@ -577,23 +630,18 @@ class MinusOneRepository internal constructor(prefs: SharedPreferences) {
             val pageIndex = current.pages.indexOfFirst { it.id == pageId }
             if (pageIndex < 0) return@updateState current
             val page = current.pages[pageIndex]
-            val target = PickedCardOperations.resolveTarget(page, componentId, containerId, type)
-                ?: return@updateState current
+            val target = PickedCardOperations.resolveTarget(page, componentId, containerId, type) ?: return@updateState current
             val columns = current.advancedConfig.gridColumns
             val picked = PickedCardOperations.build(
-                page = page, target = target, type = type, title = title, uri = uri, uris = uris,
-                columns = columns,
+                page = page, target = target, type = type, title = title, uri = uri, uris = uris, columns = columns,
                 nextY = { targetContainerId -> nextPlacementY(current, page, targetContainerId) },
                 prepareNewFile = { base -> prepareNewComponent(pageIndex, base, containerId) }
             )
-            val components = if (target.existing != null) {
-                page.components.transformComponent(target.existing.id) { picked }
-            } else {
-                ComponentInsertionOperations.insert(
-                    page = page, container = target.container, item = picked, beforeId = beforeId,
-                    columns = columns, rows = insertionRows(current, picked)
-                ) ?: return@updateState current
-            }
+            val components = if (target.existing != null) page.components.transformComponent(target.existing.id) { picked }
+            else ComponentInsertionOperations.insert(
+                page, target.container, picked, beforeId, columns, insertionRows(current, picked),
+                targetGridCell, estimatedPageGridWidthDp(), measuredFontScale, current.advancedConfig.heightUnitDp
+            ) ?: return@updateState current
             val pages = current.pages.toMutableList().apply { this[pageIndex] = page.copy(components = components) }
             if (runCatching { validateComponentTrees(pages) }.isFailure) return@updateState current
             saved = true
@@ -1204,18 +1252,15 @@ class MinusOneRepository internal constructor(prefs: SharedPreferences) {
 
     // --- AppWidget 管理 ---
 
-    fun addBoundWidget(widgetInfo: BoundWidgetInfo, pageId: String? = null, containerId: String? = null, beforeId: String? = null): Boolean {
+    fun addBoundWidget(widgetInfo: BoundWidgetInfo, pageId: String? = null, containerId: String? = null, beforeId: String? = null, targetGridCell: Pair<Int, Int>? = null): Boolean {
         var added = false
         val accepted = updateState { current ->
             added = false
             RepositoryStateOperations.addBoundWidgetState(
-                current = current,
-                widgetInfo = widgetInfo,
-                pageId = pageId,
-                containerId = containerId,
-                beforeId = beforeId,
-                nextY = { page, cid -> nextPlacementY(current, page, cid) },
-                insertionRows = { widget -> insertionRows(current, widget) }
+                current, widgetInfo, pageId, containerId, beforeId,
+                { page, cid -> nextPlacementY(current, page, cid) },
+                { widget -> insertionRows(current, widget) },
+                targetGridCell, estimatedPageGridWidthDp(), measuredFontScale
             )?.also { added = true } ?: current
         }
         return accepted && added

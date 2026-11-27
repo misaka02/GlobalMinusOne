@@ -4,6 +4,8 @@ import android.content.SharedPreferences
 import com.example.globalminusone.MemoryPreferences
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.storage.ConfigurationCodec
+import com.example.globalminusone.data.storage.ConfigurationStore
 
 class ConfigurationStoreTest {
     private val key = "state_json_v5"

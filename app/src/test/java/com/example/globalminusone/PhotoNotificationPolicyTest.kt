@@ -1,6 +1,6 @@
 package com.example.globalminusone
 
-import com.example.globalminusone.service.NotificationEventGate
+import com.example.globalminusone.service.overlay.NotificationEventGate
 import com.example.globalminusone.data.ComponentItem
 import com.example.globalminusone.data.ComponentType
 import com.example.globalminusone.data.AdvancedConfig

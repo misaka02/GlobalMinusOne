@@ -1,9 +1,14 @@
 package com.example.globalminusone.regression.v2438
 
 import com.example.globalminusone.data.*
-import com.example.globalminusone.ui.panel.previousPropertySection
+import com.example.globalminusone.ui.panel.editor.previousPropertySection
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.policy.containerGridChildBounds
+import com.example.globalminusone.data.policy.prepareFileShortcutCard
+import com.example.globalminusone.data.policy.prepareStatisticsCard
 
 class FolderSettingsAndGeometryTest {
     @Test fun directFolderSettingsDoNotInventParentScreensOnBack() {

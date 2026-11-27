@@ -2,10 +2,10 @@ package com.example.globalminusone.theme
 
 import androidx.compose.ui.graphics.Color
 
-val Purple80 = Color(0xFFD0BCFF)
-val PurpleGrey80 = Color(0xFFCCC2DC)
-val Pink80 = Color(0xFFEFB8C8)
-
-val Purple40 = Color(0xFF6650a4)
-val PurpleGrey40 = Color(0xFF625b71)
-val Pink40 = Color(0xFF7D5260)
+// ColorOS-inspired clean cobalt & slate tokens shared across settings and tool surfaces.
+internal val BrandCobaltLight = Color(0xFF1D4ED8)
+internal val BrandCobaltDark = Color(0xFF8BB8FF)
+internal val SlateBgLight = Color(0xFFF6F8FC)
+internal val SlateBgDark = Color(0xFF0E1117)
+internal val SlateTextLight = Color(0xFF0F172A)
+internal val SlateTextDark = Color(0xFFEEF2F7)

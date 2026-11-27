@@ -2,12 +2,17 @@ package com.example.globalminusone.ui.panel
 
 import com.example.globalminusone.data.ComponentItem
 import com.example.globalminusone.data.ComponentType
-import com.example.globalminusone.data.findComponent
+import com.example.globalminusone.data.operations.findComponent
 import com.example.globalminusone.data.GlobalMinusOneState
 import com.example.globalminusone.data.PageConfig
 import com.example.globalminusone.data.QuickActionItem
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.ui.panel.cards.AppCardMutationAccess
+import com.example.globalminusone.ui.panel.cards.CardLayoutSnapshot
+import com.example.globalminusone.ui.panel.cards.cardLayoutSnapshot
+import com.example.globalminusone.ui.panel.cards.mutateAppMenuCard
+import com.example.globalminusone.ui.panel.cards.mutateAppMenuLegacy
 
 class CardLayoutCapabilityTargetTest {
     private val child = ComponentItem(id = "child", type = ComponentType.CLIPBOARD_CARD)

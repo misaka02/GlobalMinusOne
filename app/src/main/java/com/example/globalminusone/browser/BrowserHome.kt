@@ -2,14 +2,16 @@ package com.example.globalminusone.browser
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -44,55 +46,149 @@ internal fun BrowserHome(query: String, onQueryChange: (String) -> Unit, request
         val columns = if (maxWidth >= 220.dp) 4 else 2
         val showHomeLogo = maxHeight >= 380.dp
         Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            var engineMenuExpanded by remember { mutableStateOf(false) }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                BrowserAddressField(query, onQueryChange, requestHostInput, onSearch, Modifier.weight(1f), onEditingChanged,
-                    placeholder = "使用 ${selectedEngine.label} 搜索或输入网址")
+                BrowserAddressField(
+                    query,
+                    onQueryChange,
+                    requestHostInput,
+                    onSearch,
+                    Modifier.weight(1f),
+                    onEditingChanged,
+                    placeholder = "搜索或输入网址",
+                    leadingContent = {
+                        Box {
+                            Surface(
+                                onClick = { engineMenuExpanded = true },
+                                shape = RoundedCornerShape(14.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Row(
+                                    Modifier.padding(horizontal = 9.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        selectedEngine.label,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1
+                                    )
+                                    Icon(
+                                        AppIcons.KeyboardArrowDown,
+                                        contentDescription = "切换搜索引擎",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            }
+                            DropdownMenu(
+                                expanded = engineMenuExpanded,
+                                onDismissRequest = { engineMenuExpanded = false }
+                            ) {
+                                BrowserSearchEngine.entries.forEach { engine ->
+                                    val active = engine == selectedEngine
+                                    val textColor = if (active) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    }
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                engine.label,
+                                                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                                                color = textColor
+                                            )
+                                        },
+                                        onClick = {
+                                            engineMenuExpanded = false
+                                            onSelectEngine(engine)
+                                            if (query.isNotBlank()) onSearch()
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                )
                 IconButton(onClick = onSearch, modifier = Modifier.size(44.dp)) { Icon(AppIcons.Search, "搜索", Modifier.size(22.dp)) }
             }
-            Spacer(Modifier.height(6.dp))
             if (onToggleNightMode != null || onToggleIncognito != null || onTogglePrivate != null) {
+                Spacer(Modifier.height(8.dp))
                 Row(
                     Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.Start),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (onTogglePrivate != null) {
+                        val privateBg = if (privateMode) {
+                            MaterialTheme.colorScheme.tertiaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainerHigh
+                        }
+                        val privateFg = if (privateMode) {
+                            MaterialTheme.colorScheme.onTertiaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
                         Surface(
                             onClick = onTogglePrivate,
                             enabled = privateAvailable,
                             shape = RoundedCornerShape(14.dp),
-                            color = if (privateMode) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
+                            color = privateBg,
+                            modifier = Modifier.heightIn(min = 32.dp)
                         ) {
-                            Text(
-                                if (privateMode) "退出无痕" else if (privateAvailable) "独立无痕" else "无痕不可用",
-                                Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                fontSize = 11.sp
-                            )
+                            Row(
+                                Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(AppIcons.Shield, null, Modifier.size(13.dp), tint = privateFg)
+                                Text(
+                                    text = if (privateMode) "退出无痕" else if (privateAvailable) "独立无痕" else "无痕不可用",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = if (privateMode) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = privateFg
+                                )
+                            }
                         }
                     }
                     if (onToggleIncognito != null) {
+                        val pauseFg = if (incognitoMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         Surface(
                             onClick = onToggleIncognito,
                             shape = RoundedCornerShape(14.dp),
-                            color = if (incognitoMode) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
+                            color = if (incognitoMode) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                            modifier = Modifier.heightIn(min = 32.dp)
                         ) {
-                            Text(
-                                text = if (incognitoMode) "历史:暂停" else "暂停历史",
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                fontSize = 11.sp,
-                                fontWeight = if (incognitoMode) FontWeight.SemiBold else FontWeight.Normal,
-                                color = if (incognitoMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Row(
+                                Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(AppIcons.History, null, Modifier.size(13.dp), tint = pauseFg)
+                                Text(
+                                    text = if (incognitoMode) "历史:暂停" else "暂停历史",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = if (incognitoMode) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = pauseFg
+                                )
+                            }
                         }
                     }
                     if (onToggleNightMode != null) {
+                        val nightFg = if (nightMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         Surface(
                             onClick = onToggleNightMode,
                             shape = RoundedCornerShape(14.dp),
-                            color = if (nightMode) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
+                            color = if (nightMode) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                            modifier = Modifier.heightIn(min = 32.dp)
                         ) {
                             Row(
-                                Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
@@ -100,39 +196,16 @@ internal fun BrowserHome(query: String, onQueryChange: (String) -> Unit, request
                                     imageVector = AppIcons.DarkMode,
                                     contentDescription = "切换夜间模式",
                                     modifier = Modifier.size(13.dp),
-                                    tint = if (nightMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    tint = nightFg
                                 )
                                 Text(
                                     text = if (nightMode) "夜间:开" else "夜间",
-                                    fontSize = 11.sp,
+                                    fontSize = 11.5.sp,
                                     fontWeight = if (nightMode) FontWeight.SemiBold else FontWeight.Normal,
-                                    color = if (nightMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = nightFg
                                 )
                             }
                         }
-                    }
-                }
-            }
-            Spacer(Modifier.height(6.dp))
-            LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(BrowserSearchEngine.entries, key = { it.name }) { engine ->
-                    val selected = engine == selectedEngine
-                    Surface(
-                        onClick = {
-                            onSelectEngine(engine)
-                            if (query.isNotBlank()) onSearch()
-                        },
-                        shape = RoundedCornerShape(14.dp),
-                        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow
-                    ) {
-                        Text(
-                            text = engine.label,
-                            maxLines = 1,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            fontSize = 11.sp,
-                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
                     }
                 }
             }

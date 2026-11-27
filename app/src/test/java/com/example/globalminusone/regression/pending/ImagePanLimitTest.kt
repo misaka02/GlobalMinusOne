@@ -1,6 +1,6 @@
 package com.example.globalminusone.regression.pending
 
-import com.example.globalminusone.ui.panel.imagePanLimit
+import com.example.globalminusone.ui.panel.file.imagePanLimit
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

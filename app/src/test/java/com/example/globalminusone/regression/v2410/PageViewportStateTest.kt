@@ -1,9 +1,9 @@
 package com.example.globalminusone.regression.v2410
 
-import com.example.globalminusone.ui.panel.LinearViewportAnchor
-import com.example.globalminusone.ui.panel.PageViewportStore
-import com.example.globalminusone.ui.panel.initialFreeViewport
-import com.example.globalminusone.ui.panel.initialLinearViewport
+import com.example.globalminusone.ui.panel.layout.LinearViewportAnchor
+import com.example.globalminusone.ui.panel.layout.PageViewportStore
+import com.example.globalminusone.ui.panel.layout.initialFreeViewport
+import com.example.globalminusone.ui.panel.layout.initialLinearViewport
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull

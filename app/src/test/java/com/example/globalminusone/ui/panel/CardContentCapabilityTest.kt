@@ -4,6 +4,11 @@ import com.example.globalminusone.data.ClipboardClearResult
 import com.example.globalminusone.data.ClipboardRecord
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.ui.panel.cards.ClipboardHistoryActions
+import com.example.globalminusone.ui.panel.cards.ClipboardTextAccess
+import com.example.globalminusone.ui.panel.cards.clearClipboardSelection
+import com.example.globalminusone.ui.panel.editor.clipboardClearStillMatches
+import com.example.globalminusone.ui.panel.cards.recordCurrentClipboard
 
 class CardContentCapabilityTest {
     private class History : ClipboardHistoryActions {

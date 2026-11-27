@@ -69,17 +69,17 @@ internal fun ScreenAssistantSettingsScreen(
     val config = state.advancedConfig.screenAssistantConfig
     val app = context.applicationContext
 
-    var expandedGroup by rememberSaveable { mutableStateOf(initialExpandedGroup.ifBlank { "OCR" }) }
+    var expandedGroups by rememberExpandedGroups(initialExpandedGroup, defaultGroup = "OCR")
     val listState = rememberLazyListState()
     var breenoProbeTrigger by remember { mutableIntStateOf(0) }
     LaunchedEffect(forceExpandOcrToken) {
         if (forceExpandOcrToken > 0L) {
-            expandedGroup = "OCR"
+            expandedGroups = expandedGroups + "OCR"
         }
     }
     LaunchedEffect(initialExpandedGroup, jumpNonce) {
         if (initialExpandedGroup.isNotBlank()) {
-            expandedGroup = initialExpandedGroup
+            expandedGroups = setOf(initialExpandedGroup)
             val idx = when (initialExpandedGroup) {
                 "OCR" -> 2
                 "TRANSLATE" -> 3
@@ -175,8 +175,8 @@ internal fun ScreenAssistantSettingsScreen(
             settingsGroup(
                 title = "文字识别 (OCR) 与原图提取",
                 summary = "当前引擎：${config.ocrEngine.label}",
-                expanded = expandedGroup == "OCR",
-                onToggle = { expandedGroup = if (expandedGroup == "OCR") "" else "OCR" }
+                expanded = "OCR" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "OCR") }
             ) {
                 item {
                     PreferenceItem(
@@ -256,7 +256,7 @@ internal fun ScreenAssistantSettingsScreen(
 
                 item {
                     val privStatus = remember(breenoProbeTrigger, config.usePrivilegedCapture) {
-                        val rootOk = com.example.globalminusone.system.UserRootSession.authorizedEpoch() != null
+                        val rootOk = com.example.globalminusone.system.privilege.UserRootSession.authorizedEpoch() != null
                         val shizukuOk = com.example.globalminusone.screenassistant.ScreenCaptureHub.shizukuAuthorized()
                         val shizukuPresent = com.example.globalminusone.screenassistant.ScreenCaptureHub.shizukuAvailable()
                         when {
@@ -293,8 +293,8 @@ internal fun ScreenAssistantSettingsScreen(
             settingsGroup(
                 title = "原位翻译引擎与 API",
                 summary = "当前引擎：${config.translateEngine.label} -> ${config.targetLanguage}",
-                expanded = expandedGroup == "TRANSLATE",
-                onToggle = { expandedGroup = if (expandedGroup == "TRANSLATE") "" else "TRANSLATE" }
+                expanded = "TRANSLATE" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "TRANSLATE") }
             ) {
                 item {
                     PreferenceItem(
@@ -353,8 +353,8 @@ internal fun ScreenAssistantSettingsScreen(
             settingsGroup(
                 title = "离线词库附件管理 (${lexicons.size})",
                 summary = "存放于应用私有目录，仅按需下载或导入，不占 APK 体积",
-                expanded = expandedGroup == "ATTACHMENTS",
-                onToggle = { expandedGroup = if (expandedGroup == "ATTACHMENTS") "" else "ATTACHMENTS" }
+                expanded = "ATTACHMENTS" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "ATTACHMENTS") }
             ) {
                 item {
                     Row(
@@ -438,8 +438,8 @@ internal fun ScreenAssistantSettingsScreen(
                 } else {
                     "未检测到系统小布组件或尚在探测中"
                 },
-                expanded = expandedGroup == "BREENO",
-                onToggle = { expandedGroup = if (expandedGroup == "BREENO") "" else "BREENO" }
+                expanded = "BREENO" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "BREENO") }
             ) {
                 item {
                     val snap = breenoProbe

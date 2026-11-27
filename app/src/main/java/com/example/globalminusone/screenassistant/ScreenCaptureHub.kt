@@ -8,11 +8,12 @@ import android.os.IBinder
 import android.os.Parcel
 import android.os.ParcelFileDescriptor
 import android.view.accessibility.AccessibilityNodeInfo
-import com.example.globalminusone.system.RootStatus
-import com.example.globalminusone.system.ShizukuPermissions
-import com.example.globalminusone.system.ShizukuUserServiceClient
-import com.example.globalminusone.system.UserRootSession
+import com.example.globalminusone.system.privilege.RootStatus
+import com.example.globalminusone.system.privilege.ShizukuPermissions
+import com.example.globalminusone.system.privilege.ShizukuUserServiceClient
+import com.example.globalminusone.system.privilege.UserRootSession
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -25,7 +26,6 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.math.max
 import kotlin.math.min
@@ -47,37 +47,35 @@ internal suspend fun <T> awaitScreenCaptureResult(
     discard: (T) -> Unit,
     start: ((T) -> Unit) -> Unit
 ): T {
-    var pendingResult: T? = null
-    val pendingActive = AtomicBoolean(false)
-    fun discardPendingOnce() {
-        if (pendingActive.compareAndSet(true, false)) {
-            val value = pendingResult
-            pendingResult = null
-            @Suppress("UNCHECKED_CAST")
-            discard(value as T)
+    val lock = Any()
+    var cancelled = false
+    var delivered = false
+    var pending: T? = null
+    var hasPending = false
+    fun discardPending() {
+        val (found, value) = synchronized(lock) {
+            if (!hasPending) false to null
+            else { val v = pending; pending = null; hasPending = false; true to v }
         }
+        @Suppress("UNCHECKED_CAST")
+        if (found) discard(value as T)
     }
     return try {
-        suspendCancellableCoroutine { continuation ->
+        suspendCancellableCoroutine<T> { continuation ->
             continuation.invokeOnCancellation {
-                discardPendingOnce()
+                synchronized(lock) { cancelled = true }
+                discardPending()
             }
             start { result ->
-                if (continuation.isActive) {
-                    pendingResult = result
-                    pendingActive.set(true)
-                    continuation.resume(result)
-                } else {
-                    discard(result)
+                val resumeNow = synchronized(lock) {
+                    if (cancelled || delivered || !continuation.isActive) false
+                    else { delivered = true; pending = result; hasPending = true; true }
                 }
+                if (resumeNow) continuation.resume(result) else discard(result)
             }
-        }.also {
-            pendingActive.set(false)
-            pendingResult = null
-        }
-    } catch (t: Throwable) {
-        discardPendingOnce()
-        throw t
+        }.also { synchronized(lock) { pending = null; hasPending = false } }
+    } finally {
+        discardPending()
     }
 }
 
@@ -144,55 +142,48 @@ internal object ScreenCaptureHub {
             val pngDef = async(Dispatchers.IO) { UserRootSession.captureScreenPng() }
             val uiDef = async(Dispatchers.IO) { captureUiTreeSnapshot(context, winW, winH) }
             val png = pngDef.await()
-            if (png != null) {
-                val bmp = withContext(Dispatchers.Default) {
-                    BitmapFactory.decodeByteArray(
-                        png,
-                        0,
-                        png.size,
-                        BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
-                    )
-                }
-                if (bmp != null) {
-                    val uiSnap = withTimeoutOrNull(1_600L) { uiDef.await() }
-                    val merged = mergeSnapshots(
-                        primary = uiSnap ?: AccessibilityScreenSnapshot(emptyList(), emptyList()),
-                        uiDump = baseSnapshot,
-                        extraObstructions = extraObstructions
-                    )
-                    return@coroutineScope PrivilegedDisplayCapture(bmp, merged)
-                }
+            if (png != null) decodeAndMergeCapture(png, uiDef, baseSnapshot, extraObstructions)?.let {
+                return@coroutineScope it
             }
         }
         if (shizukuAuthorized()) {
             val pngDef = async(Dispatchers.IO) {
                 transactPipe(context, ShizukuPrivilegedService.OP_CAPTURE_SCREEN, ShizukuPrivilegedService.MAX_CAPTURE_BYTES)
             }
-            val uiDef = async(Dispatchers.IO) {
-                captureUiTreeSnapshot(context, winW, winH)
-            }
+            val uiDef = async(Dispatchers.IO) { captureUiTreeSnapshot(context, winW, winH) }
             val png = pngDef.await()
             if (png != null && png.size >= 8) {
-                val bmp = withContext(Dispatchers.Default) {
-                    BitmapFactory.decodeByteArray(
-                        png,
-                        0,
-                        png.size,
-                        BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
-                    )
-                }
-                if (bmp != null) {
-                    val uiSnap = withTimeoutOrNull(1_600L) { uiDef.await() }
-                    val merged = mergeSnapshots(
-                        primary = uiSnap ?: AccessibilityScreenSnapshot(emptyList(), emptyList()),
-                        uiDump = baseSnapshot,
-                        extraObstructions = extraObstructions
-                    )
-                    return@coroutineScope PrivilegedDisplayCapture(bmp, merged)
+                decodeAndMergeCapture(png, uiDef, baseSnapshot, extraObstructions)?.let {
+                    return@coroutineScope it
                 }
             }
         }
         null
+    }
+
+    private suspend fun decodeAndMergeCapture(
+        png: ByteArray,
+        uiDef: Deferred<AccessibilityScreenSnapshot?>,
+        baseSnapshot: AccessibilityScreenSnapshot,
+        extraObstructions: List<ExtractedSubImageCandidate>
+    ): PrivilegedDisplayCapture? {
+        val bmp = withContext(Dispatchers.Default) {
+            BitmapFactory.decodeByteArray(
+                png, 0, png.size, BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
+            )
+        } ?: return null
+        var transferred = false
+        return try {
+            val uiSnap = withTimeoutOrNull(1_600L) { uiDef.await() }
+            val merged = mergeSnapshots(
+                primary = uiSnap ?: AccessibilityScreenSnapshot(emptyList(), emptyList()),
+                uiDump = baseSnapshot,
+                extraObstructions = extraObstructions
+            )
+            PrivilegedDisplayCapture(bmp, merged).also { transferred = true }
+        } finally {
+            if (!transferred && !bmp.isRecycled) bmp.recycle()
+        }
     }
 
     suspend fun captureUiTreeSnapshot(

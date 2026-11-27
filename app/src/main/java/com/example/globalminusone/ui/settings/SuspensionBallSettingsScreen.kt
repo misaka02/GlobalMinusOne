@@ -127,11 +127,11 @@ internal fun SuspensionBallSettingsScreen(
     var gestureActionTarget by remember { mutableStateOf<String?>(null) }
     var showMouseSpeedDialog by remember { mutableStateOf(false) }
 
-    var expandedGroup by rememberSaveable { mutableStateOf(initialExpandedGroup) }
+    var expandedGroups by rememberExpandedGroups(initialExpandedGroup)
     val listState = rememberLazyListState()
     LaunchedEffect(initialExpandedGroup, jumpNonce) {
         if (initialExpandedGroup.isNotBlank()) {
-            expandedGroup = initialExpandedGroup
+            expandedGroups = setOf(initialExpandedGroup)
             val idx = when (initialExpandedGroup) {
                 "外观" -> 1
                 "呼吸" -> 2
@@ -159,12 +159,12 @@ internal fun SuspensionBallSettingsScreen(
             contentPadding = PaddingValues(bottom = 36.dp)
         ) {
             // 分组：外观
-            item { SettingsHint("选择一个分类展开设置，其他分类会自动收起。") }
+            item { SettingsHint("可同时展开多个分类，点击标题即可展开或收起。") }
 
             settingsGroup(
                 title = "外观", summary = "大小、颜色、透明度与吸附",
-                expanded = expandedGroup == "外观",
-                onToggle = { expandedGroup = if (expandedGroup == "外观") "" else "外观" }
+                expanded = "外观" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "外观") }
             ) {
 
                 item {
@@ -186,7 +186,7 @@ internal fun SuspensionBallSettingsScreen(
                             repository.updateSuspensionBallConfig {
                                 it.copy(
                                     snapToEdge = checked,
-                                    posXPercent = com.example.globalminusone.service.OverlayVisibilityPolicy.snapSuspensionBallXPercent(it.posXPercent, checked)
+                                    posXPercent = com.example.globalminusone.service.overlay.OverlayVisibilityPolicy.snapSuspensionBallXPercent(it.posXPercent, checked)
                                 )
                             }
                         }
@@ -221,8 +221,8 @@ internal fun SuspensionBallSettingsScreen(
 
             settingsGroup(
                 title = "呼吸", summary = "呼吸效果与变化速度",
-                expanded = expandedGroup == "呼吸",
-                onToggle = { expandedGroup = if (expandedGroup == "呼吸") "" else "呼吸" }
+                expanded = "呼吸" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "呼吸") }
             ) {
 
                 item {
@@ -251,8 +251,8 @@ internal fun SuspensionBallSettingsScreen(
 
             settingsGroup(
                 title = "渐隐", summary = "空闲时的透明度与等待时间",
-                expanded = expandedGroup == "渐隐",
-                onToggle = { expandedGroup = if (expandedGroup == "渐隐") "" else "渐隐" }
+                expanded = "渐隐" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "渐隐") }
             ) {
 
                 item {
@@ -284,8 +284,8 @@ internal fun SuspensionBallSettingsScreen(
 
             settingsGroup(
                 title = "鼠标", summary = "边缘停留进入 · 相对指针与点击",
-                expanded = expandedGroup == "鼠标",
-                onToggle = { expandedGroup = if (expandedGroup == "鼠标") "" else "鼠标" }
+                expanded = "鼠标" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "鼠标") }
             ) {
 
                 item {
@@ -327,8 +327,8 @@ internal fun SuspensionBallSettingsScreen(
 
             settingsGroup(
                 title = "动作", summary = "点击、长按与滑动动作",
-                expanded = expandedGroup == "动作",
-                onToggle = { expandedGroup = if (expandedGroup == "动作") "" else "动作" }
+                expanded = "动作" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "动作") }
             ) {
 
                 item {

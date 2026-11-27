@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -35,6 +37,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.globalminusone.ui.AppIcons as Icons
 
 /** 权限入口展示系统可读状态；设备管理等无可靠检测项不伪报授权。 */
@@ -67,16 +70,19 @@ internal fun PermissionsHeaderCard(
 ) {
     val darkTheme = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val a11yNeedRestart = !isAccessibilityEnabled && isAccessibilityEnabledInSettings
-    val checkedItems = listOf(
-        canDrawOverlays,
-        isAccessibilityEnabled,
+    val coreGranted = listOf(canDrawOverlays, isAccessibilityEnabled).count { it }
+    val optionalGranted = listOf(
         isStorageGranted,
         canWriteSettings,
         isNotificationPolicyGranted,
         isUsageAccessGranted,
         isBatteryOptIgnored
-    )
-    val grantedCount = checkedItems.count { it }
+    ).count { it }
+    val statusSummary = if (coreGranted == 2) {
+        "必选已就绪 · 可选 $optionalGranted/5"
+    } else {
+        "必选 $coreGranted/2"
+    }
     val headerBg = when {
         canDrawOverlays && isAccessibilityEnabled ->
             if (darkTheme) Color(0xFF152419) else Color(0xFFEAF7EE)
@@ -107,9 +113,10 @@ internal fun PermissionsHeaderCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(16.dp))
             .background(headerBg)
-            .border(1.dp, headerBorder.copy(alpha = 0.72f), RoundedCornerShape(14.dp))
+            .border(0.8.dp, headerBorder.copy(alpha = 0.72f), RoundedCornerShape(16.dp))
             .clickable(onClick = onToggleExpand)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -120,13 +127,13 @@ internal fun PermissionsHeaderCard(
         ) {
             Text(
                 text = "权限与运行检查",
-                style = MaterialTheme.typography.titleMedium,
+                fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f)
             )
             Text(
-                text = "核心 $grantedCount/${checkedItems.size} · ${if (permissionsExpanded) "收起" else "展开详情"}",
+                text = "$statusSummary · ${if (permissionsExpanded) "收起" else "展开"}",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -135,7 +142,7 @@ internal fun PermissionsHeaderCard(
                 imageVector = if (permissionsExpanded) Icons.KeyboardArrowDown else Icons.KeyboardArrowRight,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(18.dp)
             )
         }
         Row(
@@ -191,14 +198,28 @@ internal fun PermissionsChecklistContent(
     onCollapse: () -> Unit
 ) {
     val context = LocalContext.current
-    Column(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 6.dp)
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            Text(
+                text = "必选核心权限",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)
+            )
             PermissionCircleItem(
-                title = if (!isAccessibilityEnabled && isAccessibilityEnabledInSettings) "辅助(需重开)»" else "辅助服务»",
+                title = if (!isAccessibilityEnabled && isAccessibilityEnabledInSettings) "辅助(需重开)" else "辅助服务",
                 icon = IconAccessibility,
                 granted = isAccessibilityEnabled,
                 onClick = {
@@ -213,7 +234,7 @@ internal fun PermissionsChecklistContent(
                 }
             )
             PermissionCircleItem(
-                title = "悬浮窗»",
+                title = "悬浮窗",
                 icon = IconOverlayWindow,
                 granted = canDrawOverlays,
                 onClick = {
@@ -226,8 +247,15 @@ internal fun PermissionsChecklistContent(
                     }
                 }
             )
+            Text(
+                text = "按需增强权限（仅对应功能使用）",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 8.dp, bottom = 6.dp)
+            )
             PermissionCircleItem(
-                title = "手机存储»",
+                title = "手机存储",
                 icon = IconFloppy,
                 granted = isStorageGranted,
                 onClick = {
@@ -248,13 +276,8 @@ internal fun PermissionsChecklistContent(
                     }
                 }
             )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Column(modifier = Modifier.fillMaxWidth()) {
             PermissionCircleItem(
-                title = "修改设置»",
+                title = "修改系统设置",
                 icon = Icons.Settings,
                 granted = canWriteSettings,
                 onClick = {
@@ -268,7 +291,7 @@ internal fun PermissionsChecklistContent(
                 }
             )
             PermissionCircleItem(
-                title = "勿扰»",
+                title = "勿扰权限",
                 icon = IconDoNotDisturb,
                 granted = isNotificationPolicyGranted,
                 onClick = {
@@ -280,7 +303,7 @@ internal fun PermissionsChecklistContent(
                 }
             )
             PermissionCircleItem(
-                title = "使用数据»",
+                title = "使用情况访问",
                 icon = IconBarChart,
                 granted = isUsageAccessGranted,
                 onClick = {
@@ -291,13 +314,20 @@ internal fun PermissionsChecklistContent(
                     }
                 }
             )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Column(modifier = Modifier.fillMaxWidth()) {
             PermissionCircleItem(
-                title = "设备管理»",
+                title = "电池优化白名单",
+                icon = Icons.BatteryStd,
+                granted = isBatteryOptIgnored,
+                onClick = {
+                    try {
+                        context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                    } catch (_: Exception) {
+                        Toast.makeText(context, "无法打开电池优化设置", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            )
+            PermissionCircleItem(
+                title = "设备管理（锁屏备用）",
                 icon = IconPhoneAndroid,
                 granted = false,
                 onClick = {
@@ -309,7 +339,7 @@ internal fun PermissionsChecklistContent(
                 }
             )
             PermissionCircleItem(
-                title = "后台弹出界面»",
+                title = "后台弹出界面（ColorOS）",
                 icon = IconProhibited,
                 granted = canDrawOverlays,
                 onClick = {
@@ -322,27 +352,13 @@ internal fun PermissionsChecklistContent(
                     }
                 }
             )
-            PermissionCircleItem(
-                title = "电池优化»",
-                icon = Icons.BatteryStd,
-                granted = isBatteryOptIgnored,
-                onClick = {
-                    try {
-                        context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                    } catch (_: Exception) {
-                        Toast.makeText(context, "无法打开电池优化设置", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            )
-        }
 
-        Spacer(modifier = Modifier.height(4.dp))
-
-        TextButton(
-            onClick = onCollapse,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-        ) {
-            Text("收起权限检查")
+            TextButton(
+                onClick = onCollapse,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)
+            ) {
+                Text("收起权限列表")
+            }
         }
     }
 }

@@ -4,11 +4,11 @@ import com.example.globalminusone.data.ComponentItem
 import com.example.globalminusone.data.ComponentType
 import com.example.globalminusone.data.ContainerLayoutType
 import com.example.globalminusone.data.MinusOneRepository
-import com.example.globalminusone.data.PagePresetOption
-import com.example.globalminusone.data.buildPagePresetConfig
-import com.example.globalminusone.data.containerCompactTargetMetrics
+import com.example.globalminusone.data.policy.PagePresetOption
+import com.example.globalminusone.data.policy.buildPagePresetConfig
+import com.example.globalminusone.data.policy.containerCompactTargetMetrics
 import com.example.globalminusone.system.AppAndIntentLauncher
-import com.example.globalminusone.ui.panel.shouldEnableChildHorizontalScroll
+import com.example.globalminusone.ui.panel.gesture.shouldEnableChildHorizontalScroll
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

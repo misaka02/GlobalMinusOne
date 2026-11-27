@@ -4,10 +4,10 @@ import com.example.globalminusone.data.ComponentItem
 import com.example.globalminusone.data.ComponentType
 import com.example.globalminusone.data.ContainerLayoutType
 import com.example.globalminusone.data.PageConfig
-import com.example.globalminusone.data.arrangeContainerChildren
+import com.example.globalminusone.data.policy.arrangeContainerChildren
 import com.example.globalminusone.data.isContainerType
-import com.example.globalminusone.data.validateComponentTrees
-import com.example.globalminusone.ui.panel.resizedCardSize
+import com.example.globalminusone.data.operations.validateComponentTrees
+import com.example.globalminusone.ui.panel.gesture.resizedCardSize
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json

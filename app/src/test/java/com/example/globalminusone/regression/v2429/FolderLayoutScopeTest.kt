@@ -1,10 +1,20 @@
 package com.example.globalminusone.regression.v2429
 
 import com.example.globalminusone.data.*
-import com.example.globalminusone.ui.panel.FolderDragOrder
-import com.example.globalminusone.ui.panel.FolderDragSlot
+import com.example.globalminusone.ui.panel.container.FolderDragOrder
+import com.example.globalminusone.ui.panel.container.FolderDragSlot
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.policy.CONTAINER_VIEWPORT_MAX_DP
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.ContainerLayoutType
+import com.example.globalminusone.data.policy.arrangeContainerChildren
+import com.example.globalminusone.data.policy.componentDisplayHeightDp
+import com.example.globalminusone.data.policy.containerEditingMode
+import com.example.globalminusone.data.policy.containerPopupWidthDp
+import com.example.globalminusone.data.policy.isContainerGridIcon
+import com.example.globalminusone.data.policy.measureFreeContainerChildren
 
 class FolderLayoutScopeTest {
     @Test fun bareGridRowsMatchIconBodyIncludingFontSubtitleAndExplicitSize() {

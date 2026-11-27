@@ -7,6 +7,12 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.example.globalminusone.data.BoundWidgetInfo
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.FileBrowserBookmark
+import com.example.globalminusone.data.MinusOneRepository
+import com.example.globalminusone.data.PageLayoutType
 
 class PanelEditingSessionTest {
     @Test

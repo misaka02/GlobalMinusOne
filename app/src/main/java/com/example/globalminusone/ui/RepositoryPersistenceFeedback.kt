@@ -20,7 +20,10 @@ internal fun RepositoryPersistenceFeedback(repository: MinusOneRepository, enabl
     val failure by repository.persistenceError.collectAsStateWithLifecycle()
     LaunchedEffect(failure, enabled, hostState) {
         if (enabled && hostState.isAtLeast(Lifecycle.State.STARTED)) {
-            failure?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+            failure?.let {
+                Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+                repository.acknowledgePersistenceError()
+            }
         }
     }
 }

@@ -1,7 +1,7 @@
 package com.example.globalminusone.ui.settings
 
-import com.example.globalminusone.data.AppQuickSearchMatcher
-import com.example.globalminusone.data.PinyinIndexProvider
+import com.example.globalminusone.data.policy.AppQuickSearchMatcher
+import com.example.globalminusone.data.policy.PinyinIndexProvider
 
 /** Searchable setting descriptor used by the home settings search bar for direct jump navigation. */
 data class SettingsSearchEntry(
@@ -23,9 +23,7 @@ object SettingsSearchIndex {
     private val defaultPinyinProvider = PinyinIndexProvider()
 
     val entries: List<SettingsSearchEntry> = listOf(
-        // =========================================================================
         // 1. Permissions & System Authorizations (Main Home Checklist)
-        // =========================================================================
         SettingsSearchEntry(
             id = "perm_accessibility",
             title = "无障碍服务权限",
@@ -90,10 +88,7 @@ object SettingsSearchIndex {
             targetScreen = "PERMISSIONS",
             keywords = listOf("后台弹出", "电池优化", "省电白名单", "杀后台", "保活", "自启动", "coloros")
         ),
-
-        // =========================================================================
         // 2. Operation & Edge Trigger Settings (OPERATION)
-        // =========================================================================
         SettingsSearchEntry(
             id = "op_trigger_way",
             title = "触发方式（侧滑 / 二次滑出 / 侧边下滑 / 悬浮球）",
@@ -284,17 +279,15 @@ object SettingsSearchIndex {
         ),
         SettingsSearchEntry(
             id = "theme_animation_notch",
-            title = "呼出动画、动画时间与覆盖异形屏",
-            subtitle = "切换面板滑入/缩放动效与毫秒时长，开启挖孔/刘海异形屏全高覆盖",
+            title = "各模块细分动画与覆盖异形屏",
+            subtitle = "分别调节呼出、翻页转场、子面板、卡片换位手感、文件夹与弹窗动画（各模块同步）",
             category = "主题外观",
             targetScreen = "THEME",
             targetGroup = "动画与其它",
-            keywords = listOf("呼出动画", "动画", "动画时间", "速度", "异形屏", "刘海屏", "挖孔屏", "全屏覆盖")
+            keywords = listOf("动画", "细分动画", "翻页转场", "子面板动画", "卡片换位动画", "换位手感", "文件夹动画", "弹窗动画", "异形屏")
         ),
 
-        // =========================================================================
         // 5. Advance Settings (ADVANCE)
-        // =========================================================================
         SettingsSearchEntry(
             id = "adv_layout_lock",
             title = "锁定布局与编辑保护",
@@ -303,6 +296,15 @@ object SettingsSearchIndex {
             targetScreen = "ADVANCE",
             targetGroup = "负一屏",
             keywords = listOf("锁定布局", "布局锁", "锁", "防误删", "编辑保护", "解锁")
+        ),
+        SettingsSearchEntry(
+            id = "adv_panel_open_page",
+            title = "唤出时默认页面（上次离开 / 锁定指定页）",
+            subtitle = "选择每次唤出面板时恢复上次离开的页面/子面板，或固定打开某一页",
+            category = "高级设置",
+            targetScreen = "ADVANCE",
+            targetGroup = "启动与自动收起",
+            keywords = listOf("唤出页面", "默认页面", "上次离开", "锁定页面", "固定页面", "打开首页", "子面板")
         ),
         SettingsSearchEntry(
             id = "adv_auto_a11y",
@@ -368,9 +370,7 @@ object SettingsSearchIndex {
             keywords = listOf("root", "su", "root权限", "特权", "底层通道")
         ),
 
-        // =========================================================================
         // 6. Extend Settings (EXTEND)
-        // =========================================================================
         SettingsSearchEntry(
             id = "ext_notifications",
             title = "通知轻提示、提醒震动与自动跳转白名单",
@@ -407,8 +407,6 @@ object SettingsSearchIndex {
             targetGroup = "护眼与滤色",
             keywords = listOf("护眼", "全局护眼", "护眼色", "滤色", "防蓝光", "色温", "偏黄", "eye care")
         ),
-
-        // =========================================================================
         // 7. Screen Assistant, OCR, Translate & Breeno (SCREEN_ASSISTANT)
         // =========================================================================
         SettingsSearchEntry(

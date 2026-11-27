@@ -2,6 +2,10 @@ package com.example.globalminusone.data
 
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.storage.ConfigurationCodec
+import com.example.globalminusone.data.operations.MAX_COMPONENT_TREE_DEPTH
+import com.example.globalminusone.data.policy.containerRowGapDp
+import com.example.globalminusone.data.operations.flattenComponents
 
 class ConfigurationCodecTest {
     @Test fun absentSchemaMigratesLegacyGapsRecursivelyButExplicitSchemaRetainsNegativeGap() {

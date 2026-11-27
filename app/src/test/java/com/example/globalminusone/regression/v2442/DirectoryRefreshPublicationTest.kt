@@ -1,8 +1,8 @@
 package com.example.globalminusone.regression.v2442
 
-import com.example.globalminusone.system.BrowserEntry
-import com.example.globalminusone.system.BrowserLocation
-import com.example.globalminusone.ui.panel.FileBrowserDirectoryState
+import com.example.globalminusone.system.file.BrowserEntry
+import com.example.globalminusone.system.file.BrowserLocation
+import com.example.globalminusone.ui.panel.file.FileBrowserDirectoryState
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch

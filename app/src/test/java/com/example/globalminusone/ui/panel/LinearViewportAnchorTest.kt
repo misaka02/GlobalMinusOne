@@ -1,11 +1,11 @@
 package com.example.globalminusone.regression
 
-import com.example.globalminusone.ui.panel.LinearViewportAnchor
-import com.example.globalminusone.ui.panel.LinearCardSpan
-import com.example.globalminusone.ui.panel.anchorFromLazyPosition
-import com.example.globalminusone.ui.panel.anchorAtLinearScroll
-import com.example.globalminusone.ui.panel.lazyPositionForAnchor
-import com.example.globalminusone.ui.panel.linearScrollForAnchor
+import com.example.globalminusone.ui.panel.layout.LinearViewportAnchor
+import com.example.globalminusone.ui.panel.layout.LinearCardSpan
+import com.example.globalminusone.ui.panel.layout.anchorFromLazyPosition
+import com.example.globalminusone.ui.panel.layout.anchorAtLinearScroll
+import com.example.globalminusone.ui.panel.layout.lazyPositionForAnchor
+import com.example.globalminusone.ui.panel.layout.linearScrollForAnchor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test

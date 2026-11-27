@@ -3,6 +3,10 @@ package com.example.globalminusone.regression.pending
 import com.example.globalminusone.data.*
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.policy.arrangeContainerChildren
+import com.example.globalminusone.data.policy.componentDisplayHeightDp
 
 class ContainerGridFootprintTest {
     @Test fun sixColumnFoldersUseTheirActualRowHeight() {

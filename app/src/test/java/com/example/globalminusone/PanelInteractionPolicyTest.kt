@@ -3,6 +3,23 @@ package com.example.globalminusone.ui.panel
 import com.example.globalminusone.data.*
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.PageConfig
+import com.example.globalminusone.data.PageLayoutType
+import com.example.globalminusone.ui.panel.gesture.PanelGestureOwnership
+import com.example.globalminusone.ui.panel.gesture.StationaryHoldPolicy
+import com.example.globalminusone.ui.panel.gesture.canCommitLayout
+import com.example.globalminusone.ui.panel.gesture.commitCardGeometry
+import com.example.globalminusone.ui.panel.gesture.commitLinearPreview
+import com.example.globalminusone.ui.panel.gesture.isSuccessfulDragRelease
+import com.example.globalminusone.ui.panel.gesture.ownsVerticalScroll
+import com.example.globalminusone.ui.panel.editor.parseExactInteger
+import com.example.globalminusone.ui.panel.gesture.preserveViewportScroll
+import com.example.globalminusone.ui.panel.gesture.reorderLinearDrag
+import com.example.globalminusone.ui.panel.gesture.resizedLinearHeight
+import com.example.globalminusone.ui.panel.gesture.restoreDefaultCardSize
+import com.example.globalminusone.ui.panel.gesture.stableContentExtent
 
 class PanelInteractionPolicyTest {
     @Test fun visibleCardBoundsExcludeBackgroundHoldsAndAreRemovedWhenTheCardLeaves() {

@@ -1,6 +1,6 @@
 package com.example.globalminusone.regression.v2437
 
-import com.example.globalminusone.ui.panel.BackgroundTapPolicy
+import com.example.globalminusone.ui.panel.gesture.BackgroundTapPolicy
 import org.junit.Assert.*
 import org.junit.Test
 

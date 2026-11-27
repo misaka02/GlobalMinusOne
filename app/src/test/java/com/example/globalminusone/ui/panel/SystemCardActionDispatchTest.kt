@@ -3,6 +3,8 @@ package com.example.globalminusone.ui.panel
 import com.example.globalminusone.data.ComponentType
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.ui.panel.cards.SystemActionCardCommands
+import com.example.globalminusone.ui.panel.cards.dispatchSystemCardAction
 
 class SystemCardActionDispatchTest {
     private class Commands : SystemActionCardCommands {

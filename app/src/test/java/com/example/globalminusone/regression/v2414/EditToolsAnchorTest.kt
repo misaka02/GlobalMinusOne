@@ -3,6 +3,10 @@ package com.example.globalminusone.regression.v2414
 import com.example.globalminusone.ui.panel.*
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.ui.panel.editor.EditToolsAnchor
+import com.example.globalminusone.ui.panel.editor.EditToolsPosition
+import com.example.globalminusone.ui.panel.editor.editToolsAnchor
+import com.example.globalminusone.ui.panel.editor.editToolsPosition
 
 class EditToolsAnchorTest {
     @Test fun savedAnchorReturnsToSamePositionWhenEditorIsRecreated() {

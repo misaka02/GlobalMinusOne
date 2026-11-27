@@ -2,10 +2,15 @@ package com.example.globalminusone.regression.v2414
 
 import com.example.globalminusone.MemoryPreferences
 import com.example.globalminusone.data.*
-import com.example.globalminusone.ui.panel.applicationCard
+import com.example.globalminusone.ui.panel.cards.applicationCard
 import kotlinx.serialization.json.Json
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.AppLaunchMode
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.MinusOneRepository
+import com.example.globalminusone.data.operations.findComponent
 
 class ApplicationCardModeTest {
     @Test fun olderAppCardsRemainNormalWithoutMigration() {

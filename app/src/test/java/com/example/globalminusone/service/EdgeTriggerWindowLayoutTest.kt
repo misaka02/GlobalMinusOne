@@ -7,6 +7,8 @@ import com.example.globalminusone.data.TriggerStyle
 import com.example.globalminusone.data.TriggerWay
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.service.overlay.EdgeTriggerWindowLayout
+import com.example.globalminusone.service.overlay.calculateEdgeTriggerWindowLayout
 
 class EdgeTriggerWindowLayoutTest {
     private fun layout(

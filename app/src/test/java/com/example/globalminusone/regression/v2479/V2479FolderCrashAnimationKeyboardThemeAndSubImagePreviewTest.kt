@@ -1,11 +1,11 @@
 package com.example.globalminusone.regression.v2479
 
-import com.example.globalminusone.data.CONTAINER_VIEWPORT_MAX_DP
-import com.example.globalminusone.data.contrastRatio
-import com.example.globalminusone.data.relativeLuminance
-import com.example.globalminusone.data.resolveContainerViewportHeightPx
-import com.example.globalminusone.data.resolveEffectiveAnimationMs
-import com.example.globalminusone.data.resolveKeyboardCardColors
+import com.example.globalminusone.data.policy.CONTAINER_VIEWPORT_MAX_DP
+import com.example.globalminusone.data.policy.contrastRatio
+import com.example.globalminusone.data.policy.relativeLuminance
+import com.example.globalminusone.data.policy.resolveContainerViewportHeightPx
+import com.example.globalminusone.data.policy.resolveEffectiveAnimationMs
+import com.example.globalminusone.data.policy.resolveKeyboardCardColors
 import com.example.globalminusone.service.ScreenAssistantMode
 import com.example.globalminusone.service.screenassistant.ScreenAssistantPresentation
 import org.junit.Assert.assertEquals

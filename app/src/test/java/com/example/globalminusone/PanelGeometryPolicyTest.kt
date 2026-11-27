@@ -3,6 +3,10 @@ package com.example.globalminusone
 import com.example.globalminusone.data.*
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.ThemeConfig
+import com.example.globalminusone.data.policy.movedPanelTheme
+import com.example.globalminusone.data.policy.normalizedPanelGeometry
+import com.example.globalminusone.data.policy.panelBounds
 
 class PanelGeometryPolicyTest {
     @Test fun oldDefaultsKeepFullHeightAndFollowOpeningSide() {

@@ -3,8 +3,11 @@ package com.example.globalminusone.ui.panel
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 
@@ -18,6 +21,10 @@ internal class PanelOverlayPortalState {
     private val _entries = mutableStateListOf<PortalLayer>()
     val entries: List<PortalLayer> get() = _entries
     val hasEntries: Boolean get() = _entries.isNotEmpty()
+    var clearGeneration by mutableIntStateOf(0)
+        private set
+
+    fun contains(key: Any): Boolean = _entries.any { it.key == key }
 
     fun upsert(key: Any, content: @Composable () -> Unit) {
         val index = _entries.indexOfFirst { it.key == key }
@@ -35,6 +42,7 @@ internal class PanelOverlayPortalState {
 
     fun clear() {
         _entries.clear()
+        clearGeneration++
     }
 }
 

@@ -3,6 +3,14 @@ package com.example.globalminusone.regression.v2434
 import com.example.globalminusone.data.*
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.ContainerLayoutType
+import com.example.globalminusone.data.policy.containerGridContentWidthDp
+import com.example.globalminusone.data.policy.containerIconSizeDp
+import com.example.globalminusone.data.policy.containerPopupColumns
+import com.example.globalminusone.data.policy.containerPopupHeightDp
+import com.example.globalminusone.data.policy.containerPopupWidthDp
 
 class FolderAdaptivePopupTest {
     private fun folder(icon: Int = 48, gap: Int = 4) = ComponentItem(type = ComponentType.FOLDER,

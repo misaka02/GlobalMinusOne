@@ -1,7 +1,7 @@
 package com.example.globalminusone
 
-import com.example.globalminusone.data.DefaultPresets
-import com.example.globalminusone.service.PanelWindowBlurPolicy
+import com.example.globalminusone.data.policy.DefaultPresets
+import com.example.globalminusone.service.overlay.PanelWindowBlurPolicy
 import com.example.globalminusone.system.ShortcutDiscoveryPolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

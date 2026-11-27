@@ -3,6 +3,14 @@ package com.example.globalminusone.regression.v2427
 import com.example.globalminusone.data.*
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.ContainerLayoutType
+import com.example.globalminusone.data.QuickActionItem
+import com.example.globalminusone.data.policy.compactContainerAddRowHeightDp
+import com.example.globalminusone.data.policy.componentDisplayHeightDp
+import com.example.globalminusone.data.policy.legacyContainerActionGridHeightDp
+import com.example.globalminusone.data.policy.legacyContainerActionTileHeightDp
 
 class CompactContainerBudgetTest {
     private val actions = List(4) { QuickActionItem(id = "a$it", title = "应用$it", intentUri = "test:$it") }

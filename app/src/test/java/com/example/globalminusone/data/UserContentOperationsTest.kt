@@ -3,6 +3,7 @@ package com.example.globalminusone.data
 import com.example.globalminusone.MemoryPreferences
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.operations.UserContentOperations
 
 class UserContentOperationsTest {
     @Test fun refreshKeepsFirstTextMatchIdentityAndPinWithoutCreatingOrApplyingNewRecordLimit() {

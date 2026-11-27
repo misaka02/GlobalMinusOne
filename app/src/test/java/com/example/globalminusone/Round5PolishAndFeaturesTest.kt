@@ -1,14 +1,31 @@
 package com.example.globalminusone
 
 import com.example.globalminusone.data.*
-import com.example.globalminusone.ui.panel.PanelGestureAxis
-import com.example.globalminusone.ui.panel.panelScrollAxisForComponent
+import com.example.globalminusone.ui.panel.gesture.PanelGestureAxis
+import com.example.globalminusone.ui.panel.gesture.panelScrollAxisForComponent
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentOrientation
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.ContainerLayoutType
+import com.example.globalminusone.data.policy.FolderPreviewMode
+import com.example.globalminusone.data.MinusOneRepository
+import com.example.globalminusone.data.PageLayoutType
+import com.example.globalminusone.data.policy.PagePresetOption
+import com.example.globalminusone.data.policy.componentDisplayHeightDp
+import com.example.globalminusone.data.policy.containerPopupWidthDp
+import com.example.globalminusone.data.policy.derivePageGridMetrics
+import com.example.globalminusone.data.policy.isContainerPopupCompactItem
+import com.example.globalminusone.data.policy.resolveComponentVertical
+import com.example.globalminusone.data.policy.resolveFolderPreviewMode
+import com.example.globalminusone.data.policy.resolvePageGridSpan
+import com.example.globalminusone.data.policy.supportsVerticalOrientation
+import com.example.globalminusone.data.policy.verticalComponentMinHeightDp
 
 class Round5PolishAndFeaturesTest {
 
@@ -266,15 +283,15 @@ class Round5PolishAndFeaturesTest {
             0.01f
         )
 
-        val narrowDensity = com.example.globalminusone.ui.panel.folderToolbarDensity(80f)
+        val narrowDensity = com.example.globalminusone.ui.panel.container.folderToolbarDensity(80f)
         assertTrue(narrowDensity.compactHeader)
         assertTrue(narrowDensity.compactMenu)
         assertTrue(narrowDensity.ultraCompactHeader)
-        val mediumDensity = com.example.globalminusone.ui.panel.folderToolbarDensity(156f)
+        val mediumDensity = com.example.globalminusone.ui.panel.container.folderToolbarDensity(156f)
         assertTrue(mediumDensity.compactHeader)
         assertTrue(mediumDensity.compactMenu)
         assertFalse(mediumDensity.ultraCompactHeader)
-        val standardDensity = com.example.globalminusone.ui.panel.folderToolbarDensity(336f)
+        val standardDensity = com.example.globalminusone.ui.panel.container.folderToolbarDensity(336f)
         assertFalse(standardDensity.compactHeader)
         assertFalse(standardDensity.compactMenu)
         assertFalse(standardDensity.ultraCompactHeader)
@@ -282,14 +299,14 @@ class Round5PolishAndFeaturesTest {
 
     @Test
     fun appContextMenuCardTypes_includeWebsiteAndFileShortcuts() {
-        assertTrue(com.example.globalminusone.ui.panel.isAppContextMenuCardType(ComponentType.APP_ICON))
-        assertTrue(com.example.globalminusone.ui.panel.isAppContextMenuCardType(ComponentType.CUSTOM_SHORTCUT))
-        assertTrue(com.example.globalminusone.ui.panel.isAppContextMenuCardType(ComponentType.STATIC_SHORTCUT))
-        assertTrue(com.example.globalminusone.ui.panel.isAppContextMenuCardType(ComponentType.SHELL_COMMAND))
-        assertTrue(com.example.globalminusone.ui.panel.isAppContextMenuCardType(ComponentType.WEBSITE_LINK))
-        assertTrue(com.example.globalminusone.ui.panel.isAppContextMenuCardType(ComponentType.FILE_SHORTCUT))
-        assertFalse(com.example.globalminusone.ui.panel.isAppContextMenuCardType(ComponentType.BRIGHTNESS_BAR))
-        assertFalse(com.example.globalminusone.ui.panel.isAppContextMenuCardType(ComponentType.FOLDER))
-        assertFalse(com.example.globalminusone.ui.panel.isAppContextMenuCardType(ComponentType.SWITCH_WIFI))
+        assertTrue(com.example.globalminusone.ui.panel.cards.isAppContextMenuCardType(ComponentType.APP_ICON))
+        assertTrue(com.example.globalminusone.ui.panel.cards.isAppContextMenuCardType(ComponentType.CUSTOM_SHORTCUT))
+        assertTrue(com.example.globalminusone.ui.panel.cards.isAppContextMenuCardType(ComponentType.STATIC_SHORTCUT))
+        assertTrue(com.example.globalminusone.ui.panel.cards.isAppContextMenuCardType(ComponentType.SHELL_COMMAND))
+        assertTrue(com.example.globalminusone.ui.panel.cards.isAppContextMenuCardType(ComponentType.WEBSITE_LINK))
+        assertTrue(com.example.globalminusone.ui.panel.cards.isAppContextMenuCardType(ComponentType.FILE_SHORTCUT))
+        assertFalse(com.example.globalminusone.ui.panel.cards.isAppContextMenuCardType(ComponentType.BRIGHTNESS_BAR))
+        assertFalse(com.example.globalminusone.ui.panel.cards.isAppContextMenuCardType(ComponentType.FOLDER))
+        assertFalse(com.example.globalminusone.ui.panel.cards.isAppContextMenuCardType(ComponentType.SWITCH_WIFI))
     }
 }

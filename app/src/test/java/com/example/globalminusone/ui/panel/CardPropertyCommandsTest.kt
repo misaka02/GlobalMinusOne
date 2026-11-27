@@ -5,6 +5,17 @@ import com.example.globalminusone.MemoryPreferences
 import com.example.globalminusone.data.*
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.LayoutMutationResult
+import com.example.globalminusone.data.MinusOneRepository
+import com.example.globalminusone.data.PageLayoutType
+import com.example.globalminusone.data.policy.containerPopupWidthDp
+import com.example.globalminusone.data.operations.findComponent
+import com.example.globalminusone.ui.panel.editor.CardPropertyAction
+import com.example.globalminusone.ui.panel.editor.PropertyCardTarget
+import com.example.globalminusone.ui.panel.editor.executeCardPropertyAction
+import com.example.globalminusone.ui.panel.gesture.restoreDefaultCardSize
 
 class CardPropertyCommandsTest {
     private class FaultPreferences(private val delegate: MemoryPreferences = MemoryPreferences()) : SharedPreferences by delegate {

@@ -21,6 +21,13 @@ import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.ContainerLayoutType
+import com.example.globalminusone.data.GlobalMinusOneState
+import com.example.globalminusone.data.MinusOneRepository
+import com.example.globalminusone.data.PageConfig
+import com.example.globalminusone.ui.panel.container.FolderContainerCard
 
 /** Device regression: opening properties/confirmation must keep exactly the same
  * native Popup and preserve the underlying folder editing session. */

@@ -5,8 +5,8 @@ import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import com.example.globalminusone.data.ScreenAssistantConfig
-import com.example.globalminusone.system.RootStatus
-import com.example.globalminusone.system.UserRootSession
+import com.example.globalminusone.system.privilege.RootStatus
+import com.example.globalminusone.system.privilege.UserRootSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

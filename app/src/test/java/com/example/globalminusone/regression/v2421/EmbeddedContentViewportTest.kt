@@ -2,9 +2,9 @@ package com.example.globalminusone.regression.v2421
 
 import com.example.globalminusone.browser.EmbeddedCanvasTransform
 import com.example.globalminusone.browser.EmbeddedContentViewport
-import com.example.globalminusone.service.ApplicationContentViewportStore
-import com.example.globalminusone.service.ApplicationWindowPlacement
-import com.example.globalminusone.service.ApplicationWindowRect
+import com.example.globalminusone.service.embedded.ApplicationContentViewportStore
+import com.example.globalminusone.service.embedded.ApplicationWindowPlacement
+import com.example.globalminusone.service.embedded.ApplicationWindowRect
 import org.junit.Assert.*
 import org.junit.Test
 

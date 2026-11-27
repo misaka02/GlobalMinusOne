@@ -20,6 +20,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.example.globalminusone.data.GlobalMinusOneState
+import com.example.globalminusone.data.MinusOneRepository
+import com.example.globalminusone.data.operations.findComponent
+import com.example.globalminusone.data.operations.flattenComponents
+import com.example.globalminusone.data.isContainerType
 
 /** Selection/preview is read-only. Only a confirmed append installs the chosen assets. */
 @Composable
@@ -94,23 +99,20 @@ internal fun PanelsImportHostDialog(
                             val applied = if (selection.folderId != null) {
                                 val folder = archive.convertFolder(selection.folderId, iconUriFor = icons::uriFor, gridColumns = columns)
                                 importedCount = 1
-                                try { repository.appendImportedFolder(folder, selection.targetPageId, selection.targetContainerId) }
-                                catch (failure: Exception) { icons.commit(); throw failure }
+                                repository.appendImportedFolder(folder, selection.targetPageId, selection.targetContainerId)
                             } else if (selection.pageMode == PanelsPageImportMode.STANDALONE_PAGE) {
                                 val pages = archive.pages.filter { it.id in selection.pageIds }.map {
                                     archive.convertPage(it.id, iconUriFor = icons::uriFor, gridColumns = columns)
                                 }
                                 importedCount = pages.size
-                                try { repository.appendImportedPages(pages) }
-                                catch (failure: Exception) { icons.commit(); throw failure }
+                                repository.appendImportedPages(pages)
                             } else {
                                 val asFolder = selection.pageMode == PanelsPageImportMode.GRID_FOLDER
                                 val containers = archive.pages.filter { it.id in selection.pageIds }.map {
                                     archive.convertPageAsContainer(it.id, asFolder = asFolder, iconUriFor = icons::uriFor, gridColumns = columns)
                                 }
                                 importedCount = containers.size
-                                try { repository.appendImportedContainers(containers, selection.targetPageId, selection.targetContainerId) }
-                                catch (failure: Exception) { icons.commit(); throw failure }
+                                repository.appendImportedContainers(containers, selection.targetPageId, selection.targetContainerId)
                             }
                             check(applied) { "未导入：布局被锁定、目标已失效或保存失败，原配置保留" }
                             icons.commit()

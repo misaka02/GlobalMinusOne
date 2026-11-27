@@ -1,6 +1,6 @@
 package com.example.globalminusone.regression.v2410
 
-import com.example.globalminusone.ui.panel.workspaceWindowBounds
+import com.example.globalminusone.ui.panel.file.workspaceWindowBounds
 import org.junit.Assert.*
 import org.junit.Test
 

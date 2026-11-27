@@ -130,11 +130,11 @@ internal fun OperationSettingsScreen(
     var showShowSideDialog by remember { mutableStateOf(false) }
     var gestureActionTarget by remember { mutableStateOf<String?>(null) }
 
-    var expandedGroup by rememberSaveable { mutableStateOf(initialExpandedGroup.ifBlank { "触发" }) }
+    var expandedGroups by rememberExpandedGroups(initialExpandedGroup, defaultGroup = "触发")
     val listState = rememberLazyListState()
     LaunchedEffect(initialExpandedGroup, jumpNonce) {
         if (initialExpandedGroup.isNotBlank()) {
-            expandedGroup = initialExpandedGroup
+            expandedGroups = setOf(initialExpandedGroup)
             val idx = when (initialExpandedGroup) {
                 "触发" -> 1
                 "反馈与避让" -> 2
@@ -163,12 +163,12 @@ internal fun OperationSettingsScreen(
             contentPadding = PaddingValues(bottom = 36.dp)
         ) {
             // 分组：触发
-            item { SettingsHint("选择一个分类展开设置，其他分类会自动收起。") }
+            item { SettingsHint("可同时展开多个分类，点击标题即可展开或收起。") }
 
             settingsGroup(
                 title = "触发", summary = "${triggerConfig.triggerWay.label} · 滑动距离与触发方式",
-                expanded = expandedGroup == "触发",
-                onToggle = { expandedGroup = if (expandedGroup == "触发") "" else "触发" }
+                expanded = "触发" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "触发") }
             ) {
 
                 item {
@@ -274,8 +274,8 @@ internal fun OperationSettingsScreen(
 
             settingsGroup(
                 title = "反馈与避让", summary = "震动反馈、系统震动与输入法避让",
-                expanded = expandedGroup == "反馈与避让",
-                onToggle = { expandedGroup = if (expandedGroup == "反馈与避让") "" else "反馈与避让" }
+                expanded = "反馈与避让" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "反馈与避让") }
             ) {
                 item {
                     PreferenceSwitchItem(
@@ -311,8 +311,8 @@ internal fun OperationSettingsScreen(
 
             settingsGroup(
                 title = "位置", summary = "触发条：${triggerConfig.triggerPosition.label} · 面板：${triggerConfig.defaultShowSide.label}",
-                expanded = expandedGroup == "位置",
-                onToggle = { expandedGroup = if (expandedGroup == "位置") "" else "位置" }
+                expanded = "位置" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "位置") }
             ) {
 
                 item {
@@ -335,8 +335,8 @@ internal fun OperationSettingsScreen(
 
             settingsGroup(
                 title = "区域", summary = "手势条可见性、尺寸、透明度与偏移",
-                expanded = expandedGroup == "区域",
-                onToggle = { expandedGroup = if (expandedGroup == "区域") "" else "区域" }
+                expanded = "区域" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "区域") }
             ) {
 
                 item {
@@ -438,8 +438,8 @@ internal fun OperationSettingsScreen(
 
             settingsGroup(
                 title = "手势条动作", summary = "单击、双击、长按与四向滑动",
-                expanded = expandedGroup == "手势条动作",
-                onToggle = { expandedGroup = if (expandedGroup == "手势条动作") "" else "手势条动作" }
+                expanded = "手势条动作" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "手势条动作") }
             ) {
                 if (triggerConfig.triggerWay != TriggerWay.SIDE_PULLDOWN) {
 
@@ -508,8 +508,8 @@ internal fun OperationSettingsScreen(
 
             settingsGroup(
                 title = "悬浮球", summary = "进入悬浮球的外观、鼠标与动作设置",
-                expanded = expandedGroup == "悬浮球",
-                onToggle = { expandedGroup = if (expandedGroup == "悬浮球") "" else "悬浮球" }
+                expanded = "悬浮球" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "悬浮球") }
             ) {
 
                 item {

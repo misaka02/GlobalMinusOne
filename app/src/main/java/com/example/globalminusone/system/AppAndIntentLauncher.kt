@@ -213,8 +213,8 @@ object AppAndIntentLauncher {
             synchronized(appListLock) {
                 cachedApps = null
             }
+            notifyCacheUpdated()
         }
-        notifyCacheUpdated()
     }
 
     private fun sanitizePackageKey(pkg: String): String {
@@ -572,7 +572,7 @@ object AppAndIntentLauncher {
     private fun buildLaunchOptionsBundle(): Bundle? {
         return if (Build.VERSION.SDK_INT >= 34) {
             @Suppress("DEPRECATION")
-            val mode = if (Build.VERSION.SDK_INT >= 35) {
+            val mode = if (Build.VERSION.SDK_INT >= 36) {
                 ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_ALWAYS
             } else {
                 ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
@@ -710,17 +710,14 @@ object AppAndIntentLauncher {
         }
         val appShortcutRef = ShortcutDiscoveryPolicy.parseAppShortcutUri(uri)
         if (appShortcutRef != null) {
+            if (!isAppShortcutPackageAllowed(item.packageName, appShortcutRef.first)) {
+                Toast.makeText(context, "快捷方式目标与应用不一致", Toast.LENGTH_SHORT).show(); return false
+            }
             val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? android.content.pm.LauncherApps
             if (launcherApps != null) {
                 val ok = runCatching {
-                    launcherApps.startShortcut(
-                        appShortcutRef.first,
-                        appShortcutRef.second,
-                        null,
-                        buildLaunchOptionsBundle(),
-                        android.os.Process.myUserHandle()
-                    )
-                    true
+                    launcherApps.startShortcut(appShortcutRef.first, appShortcutRef.second, null,
+                        buildLaunchOptionsBundle(), android.os.Process.myUserHandle()); true
                 }.getOrDefault(false)
                 if (ok) return true
             }
@@ -778,9 +775,10 @@ object AppAndIntentLauncher {
         }
     }
 
-    /**
-     * 聚合搜索跳转：将 %s 替换为编码后的关键词，并在浏览器中打开
-     */
+    internal fun isAppShortcutPackageAllowed(declaredPackage: String, shortcutPackage: String): Boolean =
+        declaredPackage.isBlank() || declaredPackage == shortcutPackage
+
+    /** 聚合搜索跳转：将 %s 替换为编码后的关键词，并在浏览器中打开 */
     fun launchSearch(context: Context, searchEngineUrl: String, query: String) {
         if (query.isBlank()) return
         val encodedQuery = Uri.encode(query.trim())

@@ -6,6 +6,12 @@ import com.example.globalminusone.data.backup.NativeBackupCodec
 import kotlinx.serialization.encodeToString
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.GlobalMinusOneState
+import com.example.globalminusone.data.MinusOneRepository
+import com.example.globalminusone.data.PageConfig
+import com.example.globalminusone.data.PageLayoutType
 
 class PhotoCubeRefreshAndCreationTest {
     private val uris = listOf("content://test/one", "content://test/two")

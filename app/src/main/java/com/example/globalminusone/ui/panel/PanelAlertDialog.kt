@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
+import com.example.globalminusone.data.resolvedModalMenuMs
 import com.example.globalminusone.theme.SettingsTheme
 import com.example.globalminusone.ui.motion.AnimatedOverlayTarget
 import com.example.globalminusone.ui.motion.overlayDialogMotion
@@ -80,7 +81,7 @@ internal object PanelModalBackHandler {
 
 @Composable
 internal fun AnimatedPanelModalHostContent(entry: PanelModalEntry?) {
-    val animMs = LocalPanelPalette.current.themeConfig.animationDurationMs.coerceIn(0, 800)
+    val animMs = LocalPanelPalette.current.themeConfig.resolvedModalMenuMs()
     AnimatedOverlayTarget(targetState = entry, animMs = animMs, keyOf = { it.owner }) { active ->
         active.content()
     }

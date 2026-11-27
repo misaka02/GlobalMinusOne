@@ -7,7 +7,8 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntOffset
-import com.example.globalminusone.data.resolveEffectiveAnimationMs
+import com.example.globalminusone.data.CardReorderMotionStyle
+import com.example.globalminusone.data.policy.resolveEffectiveAnimationMs
 
 /** Shared Compose physics tokens scaled consistently from user `animationDurationMs`. */
 internal object MotionTokens {
@@ -18,13 +19,19 @@ internal object MotionTokens {
             stiffness = scaledStiffness(animMs, baseStiffness = 650f, baseMs = 240f, scale = 1f, maxMs = 600, minStiffness = 140f)
         )
 
-    fun cardSettleSpring(animMs: Int): AnimationSpec<Float> =
-        if (animMs <= 0) snap()
-        else spring(dampingRatio = 0.94f, stiffness = cardSettleStiffness(animMs))
+    fun cardSettleSpring(
+        animMs: Int,
+        style: CardReorderMotionStyle = CardReorderMotionStyle.SMOOTH
+    ): AnimationSpec<Float> =
+        if (animMs <= 0 || style == CardReorderMotionStyle.NONE) snap()
+        else spring(dampingRatio = cardReorderDamping(style), stiffness = cardSettleStiffness(animMs, style))
 
-    fun cardOffsetSpring(animMs: Int): AnimationSpec<Offset> =
-        if (animMs <= 0) snap()
-        else spring(dampingRatio = 0.94f, stiffness = cardSettleStiffness(animMs))
+    fun cardOffsetSpring(
+        animMs: Int,
+        style: CardReorderMotionStyle = CardReorderMotionStyle.SMOOTH
+    ): AnimationSpec<Offset> =
+        if (animMs <= 0 || style == CardReorderMotionStyle.NONE) snap()
+        else spring(dampingRatio = cardReorderDamping(style), stiffness = cardSettleStiffness(animMs, style))
 
     fun overlayEnterSpring(animMs: Int): FiniteAnimationSpec<Float> =
         if (animMs <= 0) snap()
@@ -61,9 +68,26 @@ internal object MotionTokens {
             stiffness = scaledStiffness(animMs, baseStiffness = 850f, baseMs = 240f, scale = 1f, maxMs = 500, minStiffness = 220f)
         )
 
-    private fun cardSettleStiffness(animMs: Int): Float =
-        if (animMs <= 0) Spring.StiffnessHigh
-        else scaledStiffness(animMs, baseStiffness = 950f, baseMs = 240f, scale = 1f, maxMs = 600, minStiffness = 180f)
+    private fun cardReorderDamping(style: CardReorderMotionStyle): Float = when (style) {
+        CardReorderMotionStyle.SMOOTH -> 0.94f
+        CardReorderMotionStyle.SNAPPY -> 0.92f
+        CardReorderMotionStyle.BOUNCY -> 0.78f
+        CardReorderMotionStyle.NONE -> 1f
+    }
+
+    private fun cardSettleStiffness(
+        animMs: Int,
+        style: CardReorderMotionStyle = CardReorderMotionStyle.SMOOTH
+    ): Float {
+        if (animMs <= 0 || style == CardReorderMotionStyle.NONE) return Spring.StiffnessHigh
+        val base = when (style) {
+            CardReorderMotionStyle.SMOOTH -> 950f
+            CardReorderMotionStyle.SNAPPY -> 1350f
+            CardReorderMotionStyle.BOUNCY -> 820f
+            CardReorderMotionStyle.NONE -> 12000f
+        }
+        return scaledStiffness(animMs, baseStiffness = base, baseMs = 240f, scale = 1f, maxMs = 600, minStiffness = 180f)
+    }
 
     private fun scaledStiffness(
         animMs: Int,

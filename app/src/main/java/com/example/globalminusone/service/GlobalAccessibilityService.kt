@@ -19,6 +19,8 @@ import com.example.globalminusone.system.SystemController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import com.example.globalminusone.service.overlay.NotificationEventGate
+import com.example.globalminusone.service.overlay.extractNotificationVerificationCode
 
 /**
  * 全局负一屏增强辅助服务：
@@ -77,7 +79,7 @@ class GlobalAccessibilityService : AccessibilityService(), SystemAccessibilityAc
         Log.d(TAG, "GlobalAccessibilityService connected")
     }
 
-    override fun onUnbind(intent: Intent?): Boolean {
+    private fun resetServiceSession() {
         restoreScenario()
         unregisterScreenReceiver()
         notificationGate.clear()
@@ -87,20 +89,16 @@ class GlobalAccessibilityService : AccessibilityService(), SystemAccessibilityAc
         _connectedState.value = false
         systemController?.release()
         systemController = null
+    }
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        resetServiceSession()
         Log.d(TAG, "GlobalAccessibilityService unbound")
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
-        restoreScenario()
-        unregisterScreenReceiver()
-        notificationGate.clear()
-        statisticsNotificationGate.clear()
-        verificationGate.clear()
-        instance = null
-        _connectedState.value = false
-        systemController?.release()
-        systemController = null
+        resetServiceSession()
         screenshotExecutor.shutdown()
         Log.d(TAG, "GlobalAccessibilityService destroyed")
         super.onDestroy()
@@ -118,9 +116,11 @@ class GlobalAccessibilityService : AccessibilityService(), SystemAccessibilityAc
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 val pkg = event.packageName?.toString() ?: return
                 val lowerPkg = pkg.lowercase()
-                val locked = (getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager)?.isKeyguardLocked == true
-                val interactive = (getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager)?.isInteractive != false
-                if (locked || !interactive) restoreScenario()
+                if (activeScenarioPackage != null) {
+                    val locked = (getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager)?.isKeyguardLocked == true
+                    val interactive = (getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager)?.isInteractive != false
+                    if (locked || !interactive) restoreScenario()
+                }
                 // 过滤自身、SystemUI 及常见输入法窗口
                 if (pkg != "com.example.globalminusone" &&
                     pkg != "com.android.systemui" &&

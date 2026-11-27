@@ -9,18 +9,22 @@ import android.os.Build
 import android.util.LruCache
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import com.example.globalminusone.data.CARD_IMAGE_MAX_EDGE
-import com.example.globalminusone.data.cardImageCacheKey
-import com.example.globalminusone.data.cardImageTargetSize
-import com.example.globalminusone.data.readCardImageBytes
+import com.example.globalminusone.data.policy.CARD_IMAGE_MAX_EDGE
+import com.example.globalminusone.data.policy.EncodedImageStrategy
+import com.example.globalminusone.data.policy.cardImageCacheKey
+import com.example.globalminusone.data.policy.cardImageTargetSize
+import com.example.globalminusone.data.policy.classifyEncodedImageLength
+import com.example.globalminusone.data.policy.readCardImageBytes
 import java.io.File
 import java.io.IOException
+import java.nio.ByteBuffer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import com.example.globalminusone.system.file.entry
 
 private data class CachedCardImage(val bitmap: Bitmap, val imageBitmap: ImageBitmap)
 
@@ -85,11 +89,7 @@ private fun decodeCardImage(context: Context, rawUri: String, maxEdge: Int): Bit
 
     if (Build.VERSION.SDK_INT >= 28) {
         try {
-            val source = when (uri.scheme?.lowercase()) {
-                null, "", "file" -> ImageDecoder.createSource(File(uri.path ?: rawUri))
-                "content", "android.resource" -> ImageDecoder.createSource(context.contentResolver, uri)
-                else -> throw IOException("不支持的图片来源")
-            }
+            val source = createApi28ImageSource(context, rawUri, uri, ::openStream)
             return ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
                 val (width, height) = cardImageTargetSize(info.size.width, info.size.height, maxEdge)
                 decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
@@ -112,4 +112,31 @@ private fun decodeCardImage(context: Context, rawUri: String, maxEdge: Int): Bit
     }
     return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
         ?: throw IOException("图片格式无法解码或内容不完整")
+}
+
+@androidx.annotation.RequiresApi(28)
+private fun createApi28ImageSource(
+    context: Context,
+    rawUri: String,
+    uri: Uri,
+    openStream: () -> java.io.InputStream
+): ImageDecoder.Source {
+    if (Build.VERSION.SDK_INT < 28) throw IOException("API < 28")
+    fun boundedSource() = ImageDecoder.createSource(ByteBuffer.wrap(openStream().use { readCardImageBytes(it) }))
+    return when (uri.scheme?.lowercase()) {
+        null, "", "file" -> {
+            val file = File(uri.path ?: rawUri)
+            if (classifyEncodedImageLength(if (file.isFile) file.length() else -1L) == EncodedImageStrategy.DIRECT_DECODE) {
+                ImageDecoder.createSource(file)
+            } else boundedSource()
+        }
+        "content" -> {
+            val len = context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+            if (classifyEncodedImageLength(len) == EncodedImageStrategy.DIRECT_DECODE) {
+                ImageDecoder.createSource(context.contentResolver, uri)
+            } else boundedSource()
+        }
+        "android.resource" -> ImageDecoder.createSource(context.contentResolver, uri)
+        else -> throw IOException("不支持的图片来源")
+    }
 }

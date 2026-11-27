@@ -1,11 +1,22 @@
 package com.example.globalminusone.regression.v2439
 
 import com.example.globalminusone.system.*
-import com.example.globalminusone.ui.panel.fileBrowserControlsHeightDp
-import com.example.globalminusone.ui.panel.fileBrowserNarrowChrome
-import com.example.globalminusone.ui.panel.fileBrowserToolbarColumns
+import com.example.globalminusone.ui.panel.file.fileBrowserControlsHeightDp
+import com.example.globalminusone.ui.panel.file.fileBrowserNarrowChrome
+import com.example.globalminusone.ui.panel.file.fileBrowserToolbarColumns
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.system.file.BrowserEntry
+import com.example.globalminusone.system.file.BrowserLocation
+import com.example.globalminusone.system.file.DirectoryObservationSource
+import com.example.globalminusone.system.file.FileCategory
+import com.example.globalminusone.system.file.FileSearchResult
+import com.example.globalminusone.system.file.activeFileSearchResult
+import com.example.globalminusone.system.file.browserEntryCountLabel
+import com.example.globalminusone.system.file.directoryObservationSource
+import com.example.globalminusone.system.file.entry
+import com.example.globalminusone.system.file.filterBrowserEntries
+import com.example.globalminusone.system.file.mergeFileSearchResults
 
 class FileBrowserNavigationAndObservationTest {
     private val root = BrowserLocation("shared", path = "/storage/emulated/0")

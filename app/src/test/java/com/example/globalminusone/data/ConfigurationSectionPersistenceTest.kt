@@ -4,6 +4,7 @@ import android.content.SharedPreferences
 import com.example.globalminusone.MemoryPreferences
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.storage.ConfigurationCodec
 
 /** Exercise the real repository/store with a warmed section cache and interrupted writes. */
 class ConfigurationSectionPersistenceTest {

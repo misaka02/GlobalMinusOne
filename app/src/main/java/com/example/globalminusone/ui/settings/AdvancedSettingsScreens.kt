@@ -130,11 +130,11 @@ internal fun AdvanceSettingsScreen(
     var showIconBehaviorDialog by remember { mutableStateOf(false) }
     var showBlacklistDialog by remember { mutableStateOf(false) }
 
-    var expandedGroup by rememberSaveable { mutableStateOf(initialExpandedGroup) }
+    var expandedGroups by rememberExpandedGroups(initialExpandedGroup)
     val listState = rememberLazyListState()
     LaunchedEffect(initialExpandedGroup, jumpNonce) {
         if (initialExpandedGroup.isNotBlank()) {
-            expandedGroup = initialExpandedGroup
+            expandedGroups = setOf(initialExpandedGroup)
             val idx = when (initialExpandedGroup) {
                 "负一屏" -> 1
                 "启动与自动收起" -> 2
@@ -160,12 +160,12 @@ internal fun AdvanceSettingsScreen(
                 .background(MaterialTheme.colorScheme.background),
             contentPadding = PaddingValues(bottom = 36.dp)
         ) {
-            item { SettingsHint("选择一个分类展开设置，其他分类会自动收起。") }
+            item { SettingsHint("可同时展开多个分类，点击标题即可展开或收起。") }
 
             settingsGroup(
                 title = "布局保护", summary = if (advancedConfig.layoutLocked) "布局已锁定 · 查看编辑保护" else "布局未锁定 · 查看编辑保护",
-                expanded = expandedGroup == "负一屏",
-                onToggle = { expandedGroup = if (expandedGroup == "负一屏") "" else "负一屏" }
+                expanded = "负一屏" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "负一屏") }
             ) {
 
                 item {
@@ -182,10 +182,11 @@ internal fun AdvanceSettingsScreen(
             }
 
             settingsGroup(
-                title = "启动与自动收起", summary = "图标行为、横屏、黑名单与小部件",
-                expanded = expandedGroup == "启动与自动收起",
-                onToggle = { expandedGroup = if (expandedGroup == "启动与自动收起") "" else "启动与自动收起" }
+                title = "启动与自动收起", summary = "唤出页面、图标行为、横屏与黑名单",
+                expanded = "启动与自动收起" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "启动与自动收起") }
             ) {
+                item { PanelOpenPagePreferenceRow(state = state, repository = repository) }
 
                 item {
                     PreferenceSwitchItem(
@@ -240,18 +241,14 @@ internal fun AdvanceSettingsScreen(
 
             settingsGroup(
                 title = "显示层级与网格", summary = "悬浮窗覆盖层级与布局等分",
-                expanded = expandedGroup == "显示层级与网格",
-                onToggle = { expandedGroup = if (expandedGroup == "显示层级与网格") "" else "显示层级与网格" }
+                expanded = "显示层级与网格" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "显示层级与网格") }
             ) {
 
                 item {
-                    PreferenceSwitchItem(
-                        title = "无障碍悬浮层级",
-                        summary = "辅助服务运行时尝试将面板置于无障碍悬浮层；受系统窗口保护限制，失败自动回到普通悬浮层",
-                        checked = advancedConfig.highestOverlayLevel,
-                        onCheckedChange = { enabled ->
-                            repository.updateAdvancedConfig { it.copy(highestOverlayLevel = enabled) }
-                        }
+                    OverlayLayerSettingsItem(
+                        repository = repository,
+                        highestOverlayLevel = advancedConfig.highestOverlayLevel
                     )
                 }
 
@@ -270,8 +267,8 @@ internal fun AdvanceSettingsScreen(
 
             settingsGroup(
                 title = "Root", summary = "已获取 Root 的设备可按需开启",
-                expanded = expandedGroup == "Root",
-                onToggle = { expandedGroup = if (expandedGroup == "Root") "" else "Root" }
+                expanded = "Root" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "Root") }
             ) {
 
                 item {
@@ -285,7 +282,7 @@ internal fun AdvanceSettingsScreen(
                             } else {
                                 authorizationScope.launch {
                                     val granted = try {
-                                        com.example.globalminusone.system.UserRootSession.requestAuthorization().succeeded
+                                        com.example.globalminusone.system.privilege.UserRootSession.requestAuthorization().succeeded
                                     } catch (cancelled: kotlinx.coroutines.CancellationException) {
                                         throw cancelled
                                     } catch (_: Exception) {
@@ -347,11 +344,11 @@ internal fun ExtendSettingsScreen(
     var showScenarioDialog by remember { mutableStateOf(false) }
     var showEyeColorDialog by remember { mutableStateOf(false) }
 
-    var expandedGroup by rememberSaveable { mutableStateOf(initialExpandedGroup) }
+    var expandedGroups by rememberExpandedGroups(initialExpandedGroup)
     val listState = rememberLazyListState()
     LaunchedEffect(initialExpandedGroup, jumpNonce) {
         if (initialExpandedGroup.isNotBlank()) {
-            expandedGroup = initialExpandedGroup
+            expandedGroups = setOf(initialExpandedGroup)
             val idx = when (initialExpandedGroup) {
                 "通知" -> 1
                 "其它" -> 2
@@ -376,20 +373,20 @@ internal fun ExtendSettingsScreen(
                 .background(MaterialTheme.colorScheme.background),
             contentPadding = PaddingValues(bottom = 36.dp)
         ) {
-            item { SettingsHint("选择一个分类展开设置，其他分类会自动收起。") }
+            item { SettingsHint("可同时展开多个分类，点击标题即可展开或收起。") }
 
             settingsGroup(
                 title = "通知提醒", summary = "轻提示、震动、白名单与通知跳转",
-                expanded = expandedGroup == "通知",
-                onToggle = { expandedGroup = if (expandedGroup == "通知") "" else "通知" }
+                expanded = "通知" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "通知") }
             ) {
                 item { NotificationPreferences(repository) }
             }
 
             settingsGroup(
                 title = "验证码与情景规则", summary = "短信验证码复制与按应用调节亮度、音量",
-                expanded = expandedGroup == "其它",
-                onToggle = { expandedGroup = if (expandedGroup == "其它") "" else "其它" }
+                expanded = "其它" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "其它") }
             ) {
 
                 item {
@@ -416,8 +413,8 @@ internal fun ExtendSettingsScreen(
 
             settingsGroup(
                 title = "护眼与滤色", summary = "全局护眼开关与暖色滤镜",
-                expanded = expandedGroup == "护眼与滤色",
-                onToggle = { expandedGroup = if (expandedGroup == "护眼与滤色") "" else "护眼与滤色" }
+                expanded = "护眼与滤色" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "护眼与滤色") }
             ) {
 
                 item {

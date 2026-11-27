@@ -405,7 +405,7 @@ internal fun IndependentBrowser(
                                     }
                                 },
                                 { hostInput(true) },
-                                Modifier.weight(1f).focusRequester(findFocusRequester)
+                                Modifier.weight(1f), editorFocusRequester = findFocusRequester
                             )
                             Text(matches, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 4.dp))
                             TextButton(
@@ -1025,7 +1025,7 @@ internal fun IndependentBrowser(
                         }
                     )
                     CompactBrowserPanel("", { menuOpen = false }) {
-                        CompactBrowserToolMenu({ menuOpen = false }, commonTools) { tool ->
+                        CompactBrowserToolMenu(commonTools) { tool ->
                             menuOpen = false
                             tool.action()
                         }

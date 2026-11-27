@@ -27,6 +27,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.DragInteraction
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -80,6 +82,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -123,14 +126,16 @@ internal fun SubPageTopBar(
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 64.dp)
-                .padding(horizontal = 4.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .heightIn(min = 56.dp)
+                .padding(horizontal = 4.dp, vertical = 4.dp)
         ) {
-            IconButton(onClick = onBack) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.align(Alignment.CenterStart)
+            ) {
                 Icon(
                     imageVector = Icons.ArrowBack,
                     contentDescription = "返回",
@@ -139,16 +144,18 @@ internal fun SubPageTopBar(
             }
             Text(
                 text = title,
-                fontSize = 19.sp,
-                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
                 modifier = Modifier
-                    .weight(1f)
-                    .padding(end = 48.dp),
-                textAlign = TextAlign.Center
+                    .align(Alignment.Center)
+                    .padding(horizontal = 56.dp)
             )
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.8.dp)
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f), thickness = 0.6.dp)
     }
 }
 
@@ -157,9 +164,9 @@ internal fun PreferenceCategoryTitle(title: String) {
     Text(
         text = title,
         color = MaterialTheme.colorScheme.primary,
-        fontSize = 13.sp,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 10.dp)
+        fontSize = 12.5.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 6.dp)
     )
 }
 
@@ -173,23 +180,24 @@ internal fun PreferenceItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 64.dp)
+            .heightIn(min = 56.dp)
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 13.dp),
+            .padding(horizontal = 20.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+        Column(modifier = Modifier.weight(1f).padding(end = 14.dp)) {
             Text(
                 text = title,
-                fontSize = 16.sp,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface
             )
             if (summary.isNotBlank()) {
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = summary,
-                    fontSize = 13.sp,
+                    fontSize = 12.5.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -199,7 +207,7 @@ internal fun PreferenceItem(
                 imageVector = Icons.KeyboardArrowRight,
                 contentDescription = "进入",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(18.dp)
             )
         }
     }
@@ -215,23 +223,24 @@ internal fun PreferenceSwitchItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 72.dp)
+            .heightIn(min = 60.dp)
             .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange)
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            .padding(horizontal = 20.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
             Text(
                 text = title,
-                fontSize = 16.sp,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface
             )
             if (summary.isNotBlank()) {
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = summary,
-                    fontSize = 13.sp,
+                    fontSize = 12.5.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -249,6 +258,20 @@ internal fun PreferenceSwitchItem(
     }
 }
 
+internal class SliderDragThrottle(private val intervalMs: Long = 80L) {
+    private var lastEmitMs: Long = 0L
+
+    fun shouldEmit(nowMs: Long): Boolean {
+        if (lastEmitMs != 0L && nowMs - lastEmitMs < intervalMs) return false
+        lastEmitMs = nowMs
+        return true
+    }
+
+    fun reset() {
+        lastEmitMs = 0L
+    }
+}
+
 @Composable
 internal fun PreferenceSliderItem(
     title: String,
@@ -257,6 +280,15 @@ internal fun PreferenceSliderItem(
     valueText: String,
     onValueChange: (Float) -> Unit
 ) {
+    var draftValue by remember { mutableStateOf<Float?>(null) }
+    val throttle = remember { SliderDragThrottle() }
+    val interaction = remember { MutableInteractionSource() }
+    val currentOnChange by rememberUpdatedState(onValueChange)
+    LaunchedEffect(interaction) {
+        interaction.interactions.collect {
+            if (it is DragInteraction.Cancel) { draftValue = null; throttle.reset() }
+        }
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -278,8 +310,18 @@ internal fun PreferenceSliderItem(
             )
         }
         Slider(
-            value = value.coerceIn(valueRange.start, valueRange.endInclusive),
-            onValueChange = onValueChange,
+            value = (draftValue ?: value).coerceIn(valueRange.start, valueRange.endInclusive),
+            onValueChange = { v ->
+                draftValue = v
+                if (throttle.shouldEmit(android.os.SystemClock.elapsedRealtime())) currentOnChange(v)
+            },
+            onValueChangeFinished = {
+                val finalVal = draftValue
+                draftValue = null
+                throttle.reset()
+                if (finalVal != null) currentOnChange(finalVal)
+            },
+            interactionSource = interaction,
             valueRange = valueRange,
             colors = SliderDefaults.colors(
                 thumbColor = MaterialTheme.colorScheme.primary,

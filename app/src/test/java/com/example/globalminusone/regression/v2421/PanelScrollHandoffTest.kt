@@ -1,9 +1,9 @@
 package com.example.globalminusone.regression.v2421
 
-import com.example.globalminusone.ui.panel.PanelGestureAxis
-import com.example.globalminusone.ui.panel.PanelGestureOwnership
-import com.example.globalminusone.ui.panel.StationaryHoldPolicy
-import com.example.globalminusone.ui.panel.movementForHold
+import com.example.globalminusone.ui.panel.gesture.PanelGestureAxis
+import com.example.globalminusone.ui.panel.gesture.PanelGestureOwnership
+import com.example.globalminusone.ui.panel.gesture.StationaryHoldPolicy
+import com.example.globalminusone.ui.panel.editor.movementForHold
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.PointerInputChange

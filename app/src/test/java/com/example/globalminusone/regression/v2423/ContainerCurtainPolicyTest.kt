@@ -3,6 +3,16 @@ package com.example.globalminusone.regression.v2423
 import com.example.globalminusone.data.*
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.policy.CONTAINER_VIEWPORT_MAX_DP
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.policy.ContainerPopupBounds
+import com.example.globalminusone.data.policy.ContainerPopupPosition
+import com.example.globalminusone.data.policy.arrangeContainerChildren
+import com.example.globalminusone.data.policy.compactContainerHeaderHeightDp
+import com.example.globalminusone.data.policy.componentDisplayHeightDp
+import com.example.globalminusone.data.policy.containerPopupPosition
+import com.example.globalminusone.data.policy.displaceExpandedContainerRows
 
 class ContainerCurtainPolicyTest {
     private val child = ComponentItem(id = "note", type = ComponentType.NOTE_CARD, w = 24, h = 18, autoHeight = false)

@@ -3,6 +3,8 @@ package com.example.globalminusone
 import com.example.globalminusone.system.*
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.system.privilege.RootMainShellApi
+import com.example.globalminusone.system.privilege.RootShellBootstrap
 
 class RootBootstrapPolicyTest {
     private class Handle(var alive: Boolean = true, var root: Boolean = true)

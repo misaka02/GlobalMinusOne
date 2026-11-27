@@ -106,13 +106,8 @@ internal object DeviceShortcutDiscovery {
         val intent = Intent(Intent.ACTION_CREATE_SHORTCUT)
         val resolved = runCatching {
             @Suppress("DEPRECATION")
-            pm.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
-        }.getOrElse {
-            runCatching {
-                @Suppress("DEPRECATION")
-                pm.queryIntentActivities(intent, 0)
-            }.getOrDefault(emptyList())
-        }
+            pm.queryIntentActivities(intent, 0)
+        }.getOrDefault(emptyList())
 
         return resolved.mapNotNull { ri ->
             val ai = ri.activityInfo ?: return@mapNotNull null

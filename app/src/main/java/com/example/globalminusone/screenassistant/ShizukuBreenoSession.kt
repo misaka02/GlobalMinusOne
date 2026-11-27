@@ -3,10 +3,10 @@ package com.example.globalminusone.screenassistant
 import android.content.Context
 import android.os.IBinder
 import android.os.Parcel
-import com.example.globalminusone.system.RootCommandResult
-import com.example.globalminusone.system.RootStatus
-import com.example.globalminusone.system.ShizukuPermissions
-import com.example.globalminusone.system.ShizukuUserServiceClient
+import com.example.globalminusone.system.privilege.RootCommandResult
+import com.example.globalminusone.system.privilege.RootStatus
+import com.example.globalminusone.system.privilege.ShizukuPermissions
+import com.example.globalminusone.system.privilege.ShizukuUserServiceClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock

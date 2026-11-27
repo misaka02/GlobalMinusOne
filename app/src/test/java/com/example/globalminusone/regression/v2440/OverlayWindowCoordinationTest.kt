@@ -1,9 +1,9 @@
 package com.example.globalminusone.regression.v2440
 
-import com.example.globalminusone.service.OverlayWindowCoordination
-import com.example.globalminusone.service.OverlayWindowCoordination.AuthorizationSource.APPLICATION_WINDOWS
-import com.example.globalminusone.service.OverlayWindowCoordination.AuthorizationSource.SYSTEM_CONTROLS
-import com.example.globalminusone.service.replaceWindowInputAdjustment
+import com.example.globalminusone.service.overlay.OverlayWindowCoordination
+import com.example.globalminusone.service.overlay.OverlayWindowCoordination.AuthorizationSource.APPLICATION_WINDOWS
+import com.example.globalminusone.service.overlay.OverlayWindowCoordination.AuthorizationSource.SYSTEM_CONTROLS
+import com.example.globalminusone.service.overlay.replaceWindowInputAdjustment
 import org.junit.Assert.*
 import org.junit.Test
 

@@ -1,6 +1,6 @@
 package com.example.globalminusone
 
-import com.example.globalminusone.service.TriggerGesturePolicy
+import com.example.globalminusone.service.overlay.TriggerGesturePolicy
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test

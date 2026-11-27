@@ -13,6 +13,10 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.ui.panel.cards.AppMenuReadState
+import com.example.globalminusone.ui.panel.cards.CardLayoutSnapshot
+import com.example.globalminusone.ui.panel.cards.CardStateStreams
+import com.example.globalminusone.ui.panel.cards.hasSameLayoutInputs
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class CardStateStreamsTest {

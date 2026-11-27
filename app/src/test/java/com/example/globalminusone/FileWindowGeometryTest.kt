@@ -1,6 +1,6 @@
 package com.example.globalminusone
 
-import com.example.globalminusone.ui.panel.visibleFileWindowHeight
+import com.example.globalminusone.ui.panel.file.visibleFileWindowHeight
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

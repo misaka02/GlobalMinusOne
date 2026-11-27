@@ -4,8 +4,8 @@ import com.example.globalminusone.MemoryPreferences
 import com.example.globalminusone.data.MinusOneRepository
 import com.example.globalminusone.data.TriggerPosition
 import com.example.globalminusone.data.TriggerWay
-import com.example.globalminusone.service.SidePullTriggerPolicy
-import com.example.globalminusone.service.overlayUpdates
+import com.example.globalminusone.service.overlay.SidePullTriggerPolicy
+import com.example.globalminusone.service.overlay.overlayUpdates
 import com.example.globalminusone.ui.panel.IndependentBrowserSession
 import org.junit.Assert.*
 import org.junit.Test

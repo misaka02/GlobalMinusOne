@@ -33,32 +33,27 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlin.math.roundToInt
-
-internal fun computeMediaVolumeIndex(percent: Int, minVol: Int, maxVol: Int): Int {
-    val safeMax = maxOf(minVol, maxVol)
-    val span = safeMax - minVol
-    if (span <= 0) return minVol
-    return (minVol + ((percent.coerceIn(0, 100) / 100f) * span).roundToInt()).coerceIn(minVol, safeMax)
-}
-
-internal fun computeMediaVolumePercent(curVol: Int, minVol: Int, maxVol: Int): Int {
-    val safeMax = maxOf(minVol, maxVol)
-    val span = safeMax - minVol
-    if (span <= 0) return 0
-    return (((curVol.coerceIn(minVol, safeMax) - minVol).toFloat() / span.toFloat()) * 100f)
-        .roundToInt()
-        .coerceIn(0, 100)
-}
+import com.example.globalminusone.system.media.AndroidMediaVolumeBackend
+import com.example.globalminusone.system.media.AsyncBrightnessWriter
+import com.example.globalminusone.system.media.BrightnessMode
+import com.example.globalminusone.system.media.BrightnessState
+import com.example.globalminusone.system.media.ForegroundBrightnessOverrideController
+import com.example.globalminusone.system.media.MediaVolumeCommitResult
+import com.example.globalminusone.system.media.MediaVolumeController
+import com.example.globalminusone.system.media.PublicBrightnessScaleGuard
+import com.example.globalminusone.system.media.RadioController
+import com.example.globalminusone.system.privilege.RootCommandResult
+import com.example.globalminusone.system.privilege.RootStatus
+import com.example.globalminusone.system.privilege.UserRootSession
+import com.example.globalminusone.system.media.WINDOW_BRIGHTNESS_OVERRIDE_NONE
+import com.example.globalminusone.system.media.brightnessMode
+import com.example.globalminusone.system.media.publicBrightnessValue
 
 class SystemController(private val context: Context) {
     /**
@@ -125,26 +120,28 @@ class SystemController(private val context: Context) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val brightnessScaleGuard = PublicBrightnessScaleGuard()
+    private val brightnessOverrideController = ForegroundBrightnessOverrideController()
+    private val brightnessWriter = AsyncBrightnessWriter(rootControlScope, writePercent = ::setBrightnessPercent)
+    private val overlayBrightnessOverrideMutable = MutableStateFlow(WINDOW_BRIGHTNESS_OVERRIDE_NONE)
+    val overlayBrightnessOverride: StateFlow<Float> = overlayBrightnessOverrideMutable.asStateFlow()
+    @Volatile
+    private var currentForegroundPackage: String = ""
     private val brightnessMutable = MutableStateFlow(readBrightnessState())
     val brightness = brightnessMutable.asStateFlow()
     private val brightnessObserver = object : ContentObserver(mainHandler) {
         override fun onChange(selfChange: Boolean) { refreshBrightness() }
     }
 
-    private fun targetTorchCameraId(): String? = runCatching {
-        val cameras = cameraManager.cameraIdList.map { it to cameraManager.getCameraCharacteristics(it) }
-            .filter { it.second.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true }
-        cameras.firstOrNull { it.second.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK }
-            ?.first ?: cameras.firstOrNull()?.first
-    }.getOrNull()
+    private val cachedTorchCameraId: String? by lazy {
+        runCatching {
+            val ids = cameraManager.cameraIdList.filter { cameraManager.getCameraCharacteristics(it).get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true }
+            ids.firstOrNull { cameraManager.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK } ?: ids.firstOrNull()
+        }.getOrNull()
+    }
+    private fun targetTorchCameraId(): String? = cachedTorchCameraId
     private val torchCallback = object : CameraManager.TorchCallback() {
-        override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
-            if (cameraId == targetTorchCameraId()) _isTorchOn.value = enabled
-        }
-
-        override fun onTorchModeUnavailable(cameraId: String) {
-            if (cameraId == targetTorchCameraId()) _isTorchOn.value = false
-        }
+        override fun onTorchModeChanged(cameraId: String, enabled: Boolean) { if (cameraId == targetTorchCameraId()) _isTorchOn.value = enabled }
+        override fun onTorchModeUnavailable(cameraId: String) { if (cameraId == targetTorchCameraId()) _isTorchOn.value = false }
     }
 
     init {
@@ -164,6 +161,7 @@ class SystemController(private val context: Context) {
 
     fun release() {
         context.contentResolver.unregisterContentObserver(brightnessObserver)
+        clearOverlayBrightnessOverride()
         rootControlScope.cancel()
         radios.release()
         runCatching { context.unregisterReceiver(ringerReceiver) }
@@ -247,146 +245,22 @@ class SystemController(private val context: Context) {
     /**
      * 音量控制：媒体音量 (0..100)
      */
-    private fun mediaVolumeBounds(): Pair<Int, Int> {
-        val minVol = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            runCatching { audioManager.getStreamMinVolume(AudioManager.STREAM_MUSIC) }.getOrDefault(0)
-        } else {
-            0
-        }
-        val maxVol = runCatching { audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) }
-            .getOrDefault(15)
-            .coerceAtLeast(minVol)
-        return minVol to maxVol
+    private val mediaVolumeController by lazy {
+        MediaVolumeController(AndroidMediaVolumeBackend(audioManager), rootControlScope)
     }
 
-    fun isMediaVolumeFixed(): Boolean = runCatching { audioManager.isVolumeFixed }.getOrDefault(false)
+    fun isMediaVolumeFixed(): Boolean = mediaVolumeController.isFixed()
 
-    fun getMediaVolumePercent(): Int {
-        return try {
-            val (minVol, maxVol) = mediaVolumeBounds()
-            val curVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-            computeMediaVolumePercent(curVolume, minVol, maxVol)
-        } catch (_: Exception) {
-            0
-        }
-    }
+    fun getMediaVolumePercent(): Int = mediaVolumeController.getPercent()
 
-    fun setMediaVolumePercent(percent: Int): Boolean {
-        return try {
-            if (isMediaVolumeFixed()) return false
-            val (minVol, maxVol) = mediaVolumeBounds()
-            cachedVolumeBounds = minVol to maxVol
-            val targetIndex = computeMediaVolumeIndex(percent, minVol, maxVol)
-            applyMediaVolumeIndexDirect(targetIndex, minVol, maxVol)
-        } catch (e: Exception) {
-            Log.e("SystemController", "Failed to set media volume", e)
-            false
-        }
-    }
+    fun setMediaVolumePercent(percent: Int): Boolean = mediaVolumeController.setPercentSync(percent)
 
-    private val pendingVolumePercent = AtomicInteger(-1)
-    private val volumeWriterActive = AtomicBoolean(false)
-    @Volatile
-    private var cachedVolumeBounds: Pair<Int, Int>? = null
-    @Volatile
-    private var lastWrittenVolumeIndex: Int = Int.MIN_VALUE
+    fun setMediaVolumePercentAsync(percent: Int) = mediaVolumeController.enqueueDragPercent(percent)
 
-    private fun applyMediaVolumeIndexDirect(targetIndex: Int, minVol: Int, maxVol: Int): Boolean {
-        return runCatching {
-            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetIndex, 0)
-            true
-        }.getOrElse { err ->
-            if (err is SecurityException && targetIndex == 0 && maxVol > minVol) {
-                val safeMin = minOf(maxVol, maxOf(1, minVol))
-                runCatching {
-                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, safeMin, 0)
-                    true
-                }.getOrDefault(false)
-            } else {
-                false
-            }
-        }
-    }
+    fun commitMediaVolumePercentAsync(percent: Int, onResult: (MediaVolumeCommitResult) -> Unit) =
+        mediaVolumeController.commitPercentAsync(percent, onResult)
 
-    /**
-     * Non-blocking volume dispatch for continuous slider dragging: coalesces rapid UI changes and
-     * performs quantized AudioManager Binder IPC exclusively on Dispatchers.IO.
-     */
-    fun setMediaVolumePercentAsync(percent: Int) {
-        pendingVolumePercent.set(percent.coerceIn(0, 100))
-        if (!volumeWriterActive.compareAndSet(false, true)) return
-        rootControlScope.launch(Dispatchers.IO) {
-            try {
-                if (isMediaVolumeFixed()) {
-                    pendingVolumePercent.set(-1)
-                    return@launch
-                }
-                while (true) {
-                    val nextPercent = pendingVolumePercent.getAndSet(-1)
-                    if (nextPercent < 0) break
-                    val (minVol, maxVol) = cachedVolumeBounds ?: mediaVolumeBounds().also { cachedVolumeBounds = it }
-                    val targetIndex = computeMediaVolumeIndex(nextPercent, minVol, maxVol)
-                    if (targetIndex != lastWrittenVolumeIndex) {
-                        if (applyMediaVolumeIndexDirect(targetIndex, minVol, maxVol)) {
-                            lastWrittenVolumeIndex = targetIndex
-                        }
-                    }
-                }
-            } catch (c: CancellationException) {
-                throw c
-            } catch (e: Exception) {
-                Log.w("SystemController", "Async media volume update failed", e)
-            } finally {
-                volumeWriterActive.set(false)
-                if (pendingVolumePercent.get() >= 0 && volumeWriterActive.compareAndSet(false, true)) {
-                    val remaining = pendingVolumePercent.getAndSet(-1)
-                    if (remaining >= 0) setMediaVolumePercentAsync(remaining) else volumeWriterActive.set(false)
-                }
-            }
-        }
-    }
-
-    /**
-     * Final release commit on Dispatchers.IO with verified readback and optional Root fallback.
-     */
-    fun commitMediaVolumePercentAsync(percent: Int, onFallbackNeeded: () -> Unit) {
-        pendingVolumePercent.set(-1)
-        rootControlScope.launch(Dispatchers.IO) {
-            val fixed = isMediaVolumeFixed()
-            val (minVol, maxVol) = mediaVolumeBounds().also { cachedVolumeBounds = it }
-            val targetIndex = computeMediaVolumeIndex(percent.coerceIn(0, 100), minVol, maxVol)
-            val directOk = !fixed && applyMediaVolumeIndexDirect(targetIndex, minVol, maxVol)
-            if (directOk) {
-                lastWrittenVolumeIndex = targetIndex
-                delay(70L)
-            }
-            val readback = runCatching { audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) }.getOrDefault(targetIndex)
-            var adjusted = !fixed && directOk && (readback == targetIndex || (targetIndex == 0 && readback <= 1))
-            if (!adjusted && !fixed && UserRootSession.authorizedEpoch() != null) {
-                val res = UserRootSession.runBoundedCommand(
-                    "/system/bin/cmd media_session volume --stream 3 --set $targetIndex",
-                    maxBytes = 4096,
-                    timeoutMs = 2_500L,
-                    preserveSessionOnTimeout = true
-                )
-                val afterRoot = runCatching { audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) }.getOrDefault(readback)
-                adjusted = res.exitCode == 0 || afterRoot == targetIndex
-            }
-            if (!adjusted || fixed) {
-                withContext(Dispatchers.Main) { onFallbackNeeded() }
-            }
-        }
-    }
-
-    fun openSystemVolumePanel() {
-        runCatching {
-            audioManager.adjustStreamVolume(
-                AudioManager.STREAM_MUSIC,
-                AudioManager.ADJUST_SAME,
-                AudioManager.FLAG_SHOW_UI
-            )
-        }
-    }
+    fun openSystemVolumePanel() = mediaVolumeController.openSystemVolumePanel()
 
     /**
      * 音量控制：铃声音量 (0..100)
@@ -449,7 +323,25 @@ class SystemController(private val context: Context) {
             readBrightnessResourceBound("config_screenBrightnessSettingMinimum"),
             readBrightnessResourceBound("config_screenBrightnessSettingMaximum")),
         readBrightnessMode(), canWriteSettings())
-    fun refreshBrightness() { brightnessMutable.value = readBrightnessState() }
+    fun onForegroundPackageChanged(packageName: String) {
+        currentForegroundPackage = packageName
+        overlayBrightnessOverrideMutable.value = brightnessOverrideController.onForegroundPackageChanged(packageName)
+    }
+
+    fun clearOverlayBrightnessOverride() {
+        overlayBrightnessOverrideMutable.value = brightnessOverrideController.clear()
+    }
+
+    fun refreshBrightness() {
+        val raw = readBrightnessRaw()
+        val state = BrightnessState(
+            brightnessScaleGuard.percent(raw,
+                readBrightnessResourceBound("config_screenBrightnessSettingMinimum"),
+                readBrightnessResourceBound("config_screenBrightnessSettingMaximum")),
+            readBrightnessMode(), canWriteSettings())
+        brightnessMutable.value = state
+        overlayBrightnessOverrideMutable.value = brightnessOverrideController.onSystemBrightnessObserved(raw, state.mode)
+    }
     fun useManualBrightness(): Boolean {
         // Changing the mode is explicit. Never write a guessed old level on entry.
         val current = readBrightnessState()
@@ -461,20 +353,33 @@ class SystemController(private val context: Context) {
         refreshBrightness(); return changed && brightnessMutable.value.mode == BrightnessMode.MANUAL
     }
 
+    fun setBrightnessPercentAsync(percent: Int) = brightnessWriter.enqueue(percent)
+    fun commitBrightnessPercentAsync(percent: Int, onResult: (Boolean) -> Unit) = brightnessWriter.commit(percent, onResult)
     fun setBrightnessPercent(percent: Int): Boolean {
         val current = readBrightnessState()
         brightnessMutable.value = current
         if (!current.canWrite) return false
         return try {
             val brightnessValue = publicBrightnessValue(percent)
+            val appliedOverride = brightnessOverrideController.onSliderApplied(
+                percent = percent,
+                writtenSystemRaw = brightnessValue,
+                foregroundPackage = currentForegroundPackage
+            )
             val written = Settings.System.putInt(
                 context.contentResolver,
                 Settings.System.SCREEN_BRIGHTNESS,
                 brightnessValue
             )
+            if (written) {
+                overlayBrightnessOverrideMutable.value = appliedOverride
+            } else {
+                clearOverlayBrightnessOverride()
+            }
             refreshBrightness()
             written && readBrightnessRaw() == brightnessValue
         } catch (e: Exception) {
+            clearOverlayBrightnessOverride()
             Log.e("SystemController", "Failed to set brightness", e)
             false
         }
@@ -497,6 +402,9 @@ class SystemController(private val context: Context) {
                 BrightnessMode.UNKNOWN -> return false
             }
             val changed = Settings.System.putInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE, nextMode)
+            if (changed && nextMode == Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC) {
+                clearOverlayBrightnessOverride()
+            }
             refreshBrightness()
             changed && brightnessMutable.value.mode == brightnessMode(nextMode)
         } catch (e: Exception) {

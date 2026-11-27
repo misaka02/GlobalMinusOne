@@ -5,9 +5,7 @@ import com.example.globalminusone.ui.motion.AnimatedOverlayPresence
 import com.example.globalminusone.ui.motion.AnimatedOverlayTarget
 import com.example.globalminusone.ui.motion.MotionTokens
 import androidx.compose.runtime.setValue
-
 import androidx.compose.runtime.getValue
-
 import androidx.compose.foundation.BorderStroke
 import android.widget.Toast
 import androidx.compose.ui.layout.boundsInWindow
@@ -31,9 +29,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.PagerDefaults
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.example.globalminusone.ui.AppIcons as Icons
@@ -63,6 +58,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalView
@@ -79,22 +75,72 @@ import com.example.globalminusone.data.MinusOneRepository
 import com.example.globalminusone.data.PageLayoutType
 import com.example.globalminusone.data.ThemeConfig
 import com.example.globalminusone.data.TriggerSide
-import com.example.globalminusone.data.panelBounds
-import com.example.globalminusone.data.findComponent
-import com.example.globalminusone.data.parentContainerId
-import com.example.globalminusone.data.flattenComponents
+import com.example.globalminusone.data.policy.panelBounds
+import com.example.globalminusone.data.resolvedContainerPopupMs
+import com.example.globalminusone.data.resolvedModalMenuMs
+import com.example.globalminusone.data.resolvedPageSwitchMs
+import com.example.globalminusone.data.resolvedSubPanelMs
+import com.example.globalminusone.data.operations.findComponent
+import com.example.globalminusone.data.operations.parentContainerId
+import com.example.globalminusone.data.operations.flattenComponents
 import com.example.globalminusone.service.WidgetHostManager
 import com.example.globalminusone.system.AppAndIntentLauncher
-import com.example.globalminusone.system.HardwareStatus
 import com.example.globalminusone.system.SystemController
-import com.example.globalminusone.system.PanelFileBrowser
+import com.example.globalminusone.system.file.PanelFileBrowser
 import com.example.globalminusone.system.SystemMonitor
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import com.example.globalminusone.ui.panel.editor.AddComponentModal
+import com.example.globalminusone.ui.panel.editor.BottomNineKeyModal
+import com.example.globalminusone.ui.panel.editor.ComponentEditModal
+import com.example.globalminusone.ui.panel.container.ContainerPresentation
+import com.example.globalminusone.ui.panel.editor.DeletePageConfirmModal
+import com.example.globalminusone.ui.panel.editor.EditModeTopBanner
+import com.example.globalminusone.ui.panel.file.FloatingFileBrowser
+import com.example.globalminusone.ui.panel.container.FolderReturnState
+import com.example.globalminusone.ui.panel.layout.FreeLayoutPage
+import com.example.globalminusone.ui.panel.layout.GridLayoutPage
+import com.example.globalminusone.ui.panel.keyboard.KeyboardCandidateOverlayHost
+import com.example.globalminusone.ui.panel.keyboard.KeyboardCandidateOverlayLayer
+import com.example.globalminusone.ui.panel.layout.LinearLayoutPage
+import com.example.globalminusone.ui.panel.gesture.LocalAddAboveComponent
+import com.example.globalminusone.ui.panel.cards.LocalAppAppearanceOverrides
+import com.example.globalminusone.ui.panel.container.LocalContainerPresentation
+import com.example.globalminusone.ui.panel.container.LocalFolderReturnState
+import com.example.globalminusone.ui.panel.cards.LocalHardwareStatusFlow
+import com.example.globalminusone.ui.panel.keyboard.LocalKeyboardCandidateOverlayHost
+import com.example.globalminusone.ui.panel.cards.LocalLayoutLocked
+import com.example.globalminusone.ui.panel.cards.LocalPanelOpen
+import com.example.globalminusone.ui.panel.layout.LocalPageViewport
+import com.example.globalminusone.ui.panel.layout.LocalPageViewportActive
+import com.example.globalminusone.ui.panel.keyboard.LocalPanelActiveSide
+import com.example.globalminusone.ui.panel.gesture.LocalPanelFlingCalibration
+import com.example.globalminusone.ui.panel.gesture.LocalPanelGestureOwnership
+import com.example.globalminusone.ui.panel.layout.BindResidentLoopPagerReconciler
+import com.example.globalminusone.ui.panel.layout.LoopPagerNavigation
+import com.example.globalminusone.ui.panel.layout.ResidentLoopPager
+import com.example.globalminusone.ui.panel.layout.rememberResidentLoopPagerState
+import com.example.globalminusone.ui.panel.editor.NewPageTypeModal
+import com.example.globalminusone.ui.panel.layout.PageViewportStore
+import com.example.globalminusone.ui.panel.gesture.PanelEditorBackHandler
+import com.example.globalminusone.ui.panel.editor.PanelFooterPagePill
+import com.example.globalminusone.ui.panel.editor.PanelGeometryControls
+import com.example.globalminusone.ui.panel.editor.PanelGeometryOverlay
+import com.example.globalminusone.ui.panel.gesture.PanelGestureAxis
+import com.example.globalminusone.ui.panel.gesture.PanelGestureOwnership
+import com.example.globalminusone.ui.panel.editor.ThemeAppearanceModal
+import com.example.globalminusone.ui.panel.editor.TriggerZoneDragOverlay
+import com.example.globalminusone.ui.panel.cards.UserIconCache
+import com.example.globalminusone.ui.panel.editor.cardLongPressToEdit
+import com.example.globalminusone.ui.panel.container.collectComponentTreeIcons
+import com.example.globalminusone.ui.panel.gesture.hasLinearCardTools
+import com.example.globalminusone.ui.panel.gesture.observePanelReleaseVelocity
+import com.example.globalminusone.ui.panel.gesture.ownPanelScrollGestures
+import com.example.globalminusone.ui.panel.gesture.rememberPanelFlingCalibration
+import com.example.globalminusone.ui.panel.layout.resolveTransitionCompositingStrategy
+import com.example.globalminusone.ui.panel.gesture.shouldEnableChildHorizontalScroll
+import com.example.globalminusone.ui.panel.gesture.strictPanelBackgroundTap
 
 // -----------------------------------------------------------------------------------------
 // 主题调色板定义
@@ -109,24 +155,13 @@ internal fun MinusOneOverlayContainer(
     activeSide: TriggerSide,
     onRequestClose: () -> Unit,
     onOpenMainApp: () -> Unit,
-    onRequestBindWidget: (pageId: String, containerId: String?, beforeId: String?) -> Unit,
+    onRequestBindWidget: (pageId: String, containerId: String?, beforeId: String?, targetGridCell: Pair<Int, Int>?) -> Unit,
     onOpenEmbeddedApplication: (EmbeddedApplicationTarget) -> Unit,
     onBrowserHostInputAllowed: (Boolean) -> Unit = {},
     onFloatingWorkspaceInputMode: (Boolean) -> Unit = {}
 ) {
-    MinusOneOverlayContainer(
-        repository = repository,
-        systemController = systemController,
-        widgetHostManager = widgetHostManager,
-        openProgressProvider = { openProgress },
-        activeSide = activeSide,
-        onRequestClose = onRequestClose,
-        onOpenMainApp = onOpenMainApp,
-        onRequestBindWidget = onRequestBindWidget,
-        onOpenEmbeddedApplication = onOpenEmbeddedApplication,
-        onBrowserHostInputAllowed = onBrowserHostInputAllowed,
-        onFloatingWorkspaceInputMode = onFloatingWorkspaceInputMode
-    )
+    MinusOneOverlayContainer(repository, systemController, widgetHostManager, { openProgress }, activeSide,
+        onRequestClose, onOpenMainApp, onRequestBindWidget, onOpenEmbeddedApplication, onBrowserHostInputAllowed, onFloatingWorkspaceInputMode)
 }
 
 @Composable
@@ -138,7 +173,7 @@ internal fun MinusOneOverlayContainer(
     activeSide: TriggerSide,
     onRequestClose: () -> Unit,
     onOpenMainApp: () -> Unit,
-    onRequestBindWidget: (pageId: String, containerId: String?, beforeId: String?) -> Unit,
+    onRequestBindWidget: (pageId: String, containerId: String?, beforeId: String?, targetGridCell: Pair<Int, Int>?) -> Unit,
     onOpenEmbeddedApplication: (EmbeddedApplicationTarget) -> Unit,
     onBrowserHostInputAllowed: (Boolean) -> Unit = {},
     onFloatingWorkspaceInputMode: (Boolean) -> Unit = {}
@@ -148,14 +183,33 @@ internal fun MinusOneOverlayContainer(
     // Isolate page subtree from pure currentPageIndex updates triggered on pager settle.
     val normalizedPageState = state.copy(currentPageIndex = 0)
     val pageRenderState = remember(normalizedPageState) { normalizedPageState }
-    val pageIds = remember(pageRenderState.pages) { pageRenderState.pages.map { it.id } }
+    val overlayPortal = remember { PanelOverlayPortalState() }
+    val keyboardCandidateHost = remember { KeyboardCandidateOverlayHost() }
+    val subPanelNav = rememberSubPanelNavigationController(repository, overlayPortal) {
+        keyboardCandidateHost.dismiss()
+    }
+    val validSubPanelIds = remember(pageRenderState.subPanels) { pageRenderState.subPanels.mapTo(HashSet()) { it.id } }
+    LaunchedEffect(validSubPanelIds) { subPanelNav.pruneMissing(validSubPanelIds) }
+    val activeSubPanel = remember(subPanelNav.stack, pageRenderState.subPanels) {
+        subPanelNav.activeSubPanel(pageRenderState)
+    }
+    val activeScopeId = activeSubPanel?.id ?: ""
+    val visibleTrueIndices = remember(pageRenderState.pages, activeScopeId) {
+        pageRenderState.pages.indices.filter { pageRenderState.pages[it].subPanelId == activeScopeId }
+    }
+    val visiblePages = remember(pageRenderState.pages, visibleTrueIndices) {
+        visibleTrueIndices.map { pageRenderState.pages[it] }
+    }
+    val visiblePageIds = remember(visiblePages) { visiblePages.map { it.id } }
     val keepAwake by systemController.keepAwake.collectAsState()
     val panelView = LocalView.current
     val latestOpenProgress by rememberUpdatedState(openProgressProvider)
     val isPanelOpen by remember { derivedStateOf { latestOpenProgress() > 0f } }
     SideEffect { panelView.keepScreenOn = keepAwake && isPanelOpen }
     DisposableEffect(panelView) { onDispose { panelView.keepScreenOn = false } }
-    val themeConfig = state.themeConfig
+    val themeConfig = remember(state.themeConfig, activeSubPanel) {
+        activeSubPanel?.let { com.example.globalminusone.data.operations.resolveSubPanelTheme(state.themeConfig, it) } ?: state.themeConfig
+    }
     val layoutLocked = state.advancedConfig.layoutLocked
     val isEditMode = state.editMode && !layoutLocked
     val appearance = state.appearanceConfig
@@ -166,9 +220,8 @@ internal fun MinusOneOverlayContainer(
     var triggerZoneExpanded by remember(isEditMode) { mutableStateOf(false) }
     var panelNumbersOpen by remember(isEditMode) { mutableStateOf(false) }
     val modalHost = remember { PanelModalHostState() }
-    val overlayPortal = remember { PanelOverlayPortalState() }
-    val keyboardCandidateHost = remember { KeyboardCandidateOverlayHost() }
     val folderReturnState = remember { FolderReturnState() }
+    val subPanelPortalProgress = rememberSubPanelPortalProgress(subPanelNav, themeConfig.resolvedSubPanelMs())
     val corruptStateNotice by repository.corruptStateRecoveredNotice.collectAsState()
     com.example.globalminusone.ui.RepositoryPersistenceFeedback(repository, enabled = isPanelOpen)
     val gestureOwnership = remember { PanelGestureOwnership() }
@@ -178,7 +231,8 @@ internal fun MinusOneOverlayContainer(
     // editing child can immediately replace the deleted first-card anchor.
     if (isEditMode) pageViewports.beginEditing()
     SideEffect { if (!isEditMode) pageViewports.finishEditing(save = true) }
-    LaunchedEffect(pageIds) { pageViewports.retain(pageIds.toSet()) }
+    val allPageIds = remember(pageRenderState.pages) { pageRenderState.pages.map { it.id } }
+    LaunchedEffect(allPageIds) { pageViewports.retain(allPageIds.toSet()) }
     LaunchedEffect(isPanelOpen, corruptStateNotice) {
         if (isPanelOpen && corruptStateNotice) {
             val preserved = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -189,13 +243,19 @@ internal fun MinusOneOverlayContainer(
                 else "原配置损坏且原文备份未完成；原文仍保留，导出和恢复将停止以防覆盖", Toast.LENGTH_LONG).show()
         }
     }
-    LaunchedEffect(isPanelOpen) { if (isPanelOpen) systemController.refreshBrightness() }
+    LaunchedEffect(isPanelOpen) {
+        if (isPanelOpen) {
+            subPanelNav.applyOpenPagePolicyIfLocked()
+            systemController.refreshBrightness()
+        }
+    }
     LaunchedEffect(!isPanelOpen) {
         if (!isPanelOpen) {
             overlayPortal.clear()
             modalHost.dismiss()
             keyboardCandidateHost.dismiss()
             folderReturnState.clear()
+            subPanelNav.onPanelClosed()
         }
     }
 
@@ -203,7 +263,10 @@ internal fun MinusOneOverlayContainer(
     var showBrowser by remember { mutableStateOf(false) }
     val browserSession = remember(context) { IndependentBrowserSession(context.applicationContext) }
     val configurationRestoreGeneration by repository.configurationRestoreGeneration.collectAsState()
-    LaunchedEffect(configurationRestoreGeneration) { browserSession.reloadSavedPreferences() }
+    LaunchedEffect(configurationRestoreGeneration) {
+        browserSession.reloadSavedPreferences()
+        subPanelNav.reconcileActiveScope(applyLocked = isPanelOpen)
+    }
     val floatingWindowOpen = showFileBrowser || showBrowser
     var fileWindowContentVisible by remember { mutableStateOf(true) }
     val floatingWindowInputActive = showBrowser || (showFileBrowser && fileWindowContentVisible)
@@ -216,15 +279,6 @@ internal fun MinusOneOverlayContainer(
     }
     var previewFileShortcut by remember { mutableStateOf<ComponentItem?>(null) }
     val hardwareStatuses = remember(context) { SystemMonitor.observe(context) }
-    // Collect only while ordinary panel cards are visible; removal cancels hardware sampling.
-    val needsHardware = state.pages.getOrNull(state.currentPageIndex)?.components?.flattenComponents()?.any {
-        it.type in setOf(ComponentType.STAT_BATTERY_BAR, ComponentType.STAT_BATTERY_DETAIL, ComponentType.STAT_RAM, ComponentType.STAT_ROM)
-    } == true
-    val hardwareStatus = if (isPanelOpen && needsHardware) {
-        hardwareStatuses.collectAsState().value
-    } else {
-        HardwareStatus.Empty
-    }
 
     val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
     val effectiveThemeConfig = remember(themeConfig, systemDark) {
@@ -249,6 +303,7 @@ internal fun MinusOneOverlayContainer(
     var showAddComponent by remember { mutableStateOf(false) }
     var addTargetContainerId by remember { mutableStateOf<String?>(null) }
     var addBeforeComponentId by remember { mutableStateOf<String?>(null) }
+    var addTargetGridCell by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var showThemeAppearance by remember { mutableStateOf(false) }
     var themeInitialSection by remember { mutableStateOf("") }
     var showDeletePageConfirm by remember { mutableStateOf(false) }
@@ -273,12 +328,10 @@ internal fun MinusOneOverlayContainer(
             showNewPageTypeDialog -> { showNewPageTypeDialog = false; true }
             showEditExitConfirmation -> { showEditExitConfirmation = false; afterEditExit = null; true }
             editingComponent != null -> { editingComponent = null; true }
+            subPanelNav.editingSubPanelId != null -> { subPanelNav.editingSubPanelId = null; true }
             showAddComponent -> {
-                showAddComponent = false
-                addTargetContainerId = null
-                addBeforeComponentId = null
-                folderReturnState.triggerPendingReopen()
-                true
+                showAddComponent = false; addTargetContainerId = null; addBeforeComponentId = null; addTargetGridCell = null
+                folderReturnState.triggerPendingReopen(); true
             }
             showThemeAppearance -> { showThemeAppearance = false; themeInitialSection = ""; true }
             showNineKeyMenu -> { showNineKeyMenu = false; true }
@@ -289,6 +342,7 @@ internal fun MinusOneOverlayContainer(
                 repository.selectComponent(null); true
             }
             repository.state.value.editMode -> { requestFinishEditing(); true }
+            subPanelNav.pop(activeScopeId) -> true
             else -> false
         }
     })
@@ -308,10 +362,20 @@ internal fun MinusOneOverlayContainer(
     fun commitPanelGeometry(edited: ThemeConfig) {
         val latest = repository.state.value
         if (latest.editMode && !latest.advancedConfig.layoutLocked) {
-            repository.updateThemeConfig { current -> current.copy(
-                panelWidthPercent = edited.panelWidthPercent, panelHeightPercent = edited.panelHeightPercent,
-                panelHorizontalOffsetPercent = edited.panelHorizontalOffsetPercent,
-                panelVerticalPositionPercent = edited.panelVerticalPositionPercent) }
+            val currentSub = activeSubPanel
+            if (currentSub != null) {
+                repository.updateSubPanel(currentSub.id) { current ->
+                    com.example.globalminusone.data.operations.applyGeometryToSubPanel(
+                        current.copy(inheritGeometry = false),
+                        edited
+                    )
+                }
+            } else {
+                repository.updateThemeConfig { current -> current.copy(
+                    panelWidthPercent = edited.panelWidthPercent, panelHeightPercent = edited.panelHeightPercent,
+                    panelHorizontalOffsetPercent = edited.panelHorizontalOffsetPercent,
+                    panelVerticalPositionPercent = edited.panelVerticalPositionPercent) }
+            }
         }
         previewPanelTheme = null
     }
@@ -333,56 +397,55 @@ internal fun MinusOneOverlayContainer(
             showDeletePageConfirm = false
             showNewPageTypeDialog = false
             editingComponent = null
+            subPanelNav.editingSubPanelId = null
         }
     }
 
-    // Adjacent virtual slots wrap to real pages, keeping boundary drags and transitions native.
-    val pageCount = pageRenderState.pages.size.coerceAtLeast(1)
-    val loopPager = remember(pageIds) { LoopPagerPolicy(pageIds) }
-    val initialPage = state.currentPageIndex.coerceIn(0, pageCount - 1)
-    val pagerState = key(pageIds) {
-        rememberPagerState(initialPage = loopPager.initialVirtualPage(initialPage), pageCount = { loopPager.virtualPageCount })
+    // Resident real-page circular pager avoids creating/disposing pages mid-swipe.
+    val pageCount = visiblePages.size.coerceAtLeast(1)
+    val initialLocalPage = remember(visiblePageIds, visibleTrueIndices) {
+        visibleTrueIndices.indexOf(repository.state.value.currentPageIndex).let { if (it >= 0) it else 0 }
     }
-    // Deferred read avoids subscribing MinusOneOverlayContainer to pagerState.currentPage flips mid-swipe.
-    val latestCurrentRealPage by rememberUpdatedState { loopPager.realIndex(pagerState.currentPage) }
+    val pagerState = key(visiblePageIds) {
+        rememberResidentLoopPagerState(initialRealPage = initialLocalPage, pageCount = pageCount)
+    }
+    // Deferred read avoids subscribing MinusOneOverlayContainer to currentRealPage flips mid-swipe.
+    val latestCurrentLocalPage by rememberUpdatedState { pagerState.currentRealPage }
+    val latestCurrentTruePage by rememberUpdatedState {
+        visibleTrueIndices.getOrElse(pagerState.currentRealPage) { visibleTrueIndices.firstOrNull() ?: 0 }
+    }
     var pagerNavigation by remember(pagerState) { mutableStateOf<LoopPagerNavigation?>(null) }
-    val repositoryPageSelection by rememberUpdatedState(pageIds to state.currentPageIndex)
-    fun navigatePage(target: Int, direction: Int = 0) {
+    val repositoryPageSelection by rememberUpdatedState(visiblePageIds to state.currentPageIndex)
+    fun navigatePage(targetLocal: Int, direction: Int = 0) {
         val latest = repository.state.value
-        val clamped = target.coerceIn(0, (latest.pages.size - 1).coerceAtLeast(0))
-        if (latest.pages.map { it.id } == pageIds && pageCount > 1) {
-            pagerNavigation = LoopPagerNavigation((pagerNavigation?.sequence ?: 0L) + 1, clamped, direction)
+        val currentVisibleIndices = latest.pages.indices.filter { latest.pages[it].subPanelId == activeScopeId }
+        val clampedLocal = targetLocal.coerceIn(0, (currentVisibleIndices.size - 1).coerceAtLeast(0))
+        val targetTrue = currentVisibleIndices.getOrElse(clampedLocal) { return }
+        if (currentVisibleIndices.map { latest.pages[it].id } == visiblePageIds && pageCount > 1) {
+            pagerNavigation = LoopPagerNavigation((pagerNavigation?.sequence ?: 0L) + 1, clampedLocal, direction)
         }
-        if (latest.currentPageIndex != clamped) repository.setCurrentPageIndex(clamped)
+        if (latest.currentPageIndex != targetTrue) repository.setCurrentPageIndex(targetTrue)
     }
-    LaunchedEffect(pagerState) {
-        val reconciler = LoopPagerReconciler(loopPager, initialPage)
-        snapshotFlow {
-            // StateFlow.value alone is not a snapshot read: also observe collectAsState's selection.
+    BindResidentLoopPagerReconciler(
+        pagerState = pagerState,
+        initialLocalPage = initialLocalPage,
+        visibleTrueIndices = visibleTrueIndices,
+        readRepositoryIndex = {
             val observedSelection = repositoryPageSelection
             val latest = repository.state.value
-            if (observedSelection.first != pageIds || latest.pages.map { it.id } != pageIds) null else LoopPagerSnapshot(
-                latest.currentPageIndex, pagerState.currentPage, pagerState.settledPage,
-                pagerState.isScrollInProgress, pagerNavigation
-            )
-        }.collect { snapshot ->
-            if (snapshot != null) when (val decision = reconciler.reconcile(snapshot)) {
-                is LoopPagerDecision.Navigate -> try {
-                    val animMs = repository.state.value.themeConfig.animationDurationMs
-                    if (animMs <= 0) pagerState.scrollToPage(decision.virtualPage)
-                    else pagerState.animateScrollToPage(
-                        decision.virtualPage,
-                        animationSpec = resolvePagerSnapAnimationSpec(animMs)
-                    )
-                } catch (_: CancellationException) {
-                    // A user drag may interrupt animation; structural/disposal cancellation must propagate.
-                    currentCoroutineContext().ensureActive()
-                }
-                is LoopPagerDecision.Persist -> repository.setCurrentPageIndex(decision.realIndex)
-                null -> Unit
+            val latestVisibleIds = latest.pages.filter { it.subPanelId == activeScopeId }.map { it.id }
+            if (observedSelection.first != visiblePageIds || latestVisibleIds != visiblePageIds) null else {
+                val activeId = latest.pages.getOrNull(latest.currentPageIndex)?.id
+                latestVisibleIds.indexOf(activeId).let { if (it >= 0) it else 0 }
             }
-        }
-    }
+        },
+        readNavigation = { pagerNavigation },
+        readAnimMs = {
+            if (!isPanelOpen || subPanelNav.shouldSnapPageTransition()) 0
+            else repository.state.value.themeConfig.resolvedPageSwitchMs()
+        },
+        onPersistTruePage = { targetTrue -> repository.setCurrentPageIndex(targetTrue) }
+    )
 
     val latestImageRevisions by repository.imageAccessRevisions.collectAsState()
     LaunchedEffect(context, pageRenderState.pages, pageRenderState.appAppearanceOverrides) {
@@ -407,12 +470,16 @@ internal fun MinusOneOverlayContainer(
     val latestRequestClose by rememberUpdatedState(onRequestClose)
     val latestOpenMainApp by rememberUpdatedState(onOpenMainApp)
 
+    val latestOpenSubPanel by rememberUpdatedState<(String, Rect?) -> Unit> { targetSubId, anchorBounds ->
+        subPanelNav.open(activeScopeId, targetSubId, anchorBounds)
+    }
+
     val closePanelForExternalApp = remember { { latestRequestClose() } }
     val openMainAppStable = remember { { latestOpenMainApp() } }
     val addAboveComponent = remember(repository) {
         { componentId: String ->
             if (latestAllowLayoutEdit()) {
-                val page = repository.state.value.pages.getOrNull(latestCurrentRealPage())
+                val page = repository.state.value.pages.getOrNull(latestCurrentTruePage())
                 if (page?.components?.findComponent(componentId) != null) {
                     addTargetContainerId = page.components.parentContainerId(componentId)
                     addBeforeComponentId = componentId
@@ -450,6 +517,7 @@ internal fun MinusOneOverlayContainer(
             },
             openFileBrowser = { previewFileShortcut = null; showBrowser = false; showFileBrowser = true },
             openFileShortcut = { item -> previewFileShortcut = item; showBrowser = false; showFileBrowser = true },
+            openSubPanel = { targetSubId, anchorBounds -> latestOpenSubPanel(targetSubId, anchorBounds) },
             selectImage = { item ->
                 val latest = repository.state.value
                 val page = latest.pages.firstOrNull { page -> page.components.findComponent(item.id) != null }
@@ -472,8 +540,9 @@ internal fun MinusOneOverlayContainer(
         {
             if (latestAllowLayoutEdit()) {
                 addTargetContainerId = null
+                addTargetGridCell = null
                 addBeforeComponentId = repository.state.value.pages
-                    .getOrNull(latestCurrentRealPage())
+                    .getOrNull(latestCurrentTruePage())
                     ?.components
                     ?.lastOrNull { it.type == ComponentType.OPERATION_BAR }
                     ?.id
@@ -481,12 +550,20 @@ internal fun MinusOneOverlayContainer(
             }
         }
     }
+    val onOpenAddAtGridCell = remember(repository) {
+        { col: Int, row: Int ->
+            if (latestAllowLayoutEdit()) {
+                addTargetContainerId = null
+                addBeforeComponentId = null
+                addTargetGridCell = col to row
+                showAddComponent = true
+            }
+        }
+    }
     val onAddAboveComponentTop = remember {
         { targetId: String ->
             if (latestAllowLayoutEdit()) {
-                addTargetContainerId = null
-                addBeforeComponentId = targetId
-                showAddComponent = true
+                addTargetContainerId = null; addTargetGridCell = null; addBeforeComponentId = targetId; showAddComponent = true
             }
         }
     }
@@ -498,7 +575,8 @@ internal fun MinusOneOverlayContainer(
         LocalPanelActiveSide provides activeSide,
         LocalKeyboardCandidateOverlayHost provides keyboardCandidateHost,
         LocalAppAppearanceOverrides provides pageRenderState.appAppearanceOverrides,
-        LocalHardwareStatus provides hardwareStatus,
+        LocalPanelOpen provides isPanelOpen,
+        LocalHardwareStatusFlow provides hardwareStatuses,
         LocalLayoutLocked provides layoutLocked,
         LocalPanelModalHost provides modalHost,
         LocalPanelOverlayPortal provides overlayPortal,
@@ -526,12 +604,12 @@ internal fun MinusOneOverlayContainer(
                             // A floating workspace closes via its own controls/Back, including dirty-editor checks.
                         } else if (editingComponent != null) {
                             editingComponent = null
+                        } else if (subPanelNav.editingSubPanelId != null) {
+                            subPanelNav.editingSubPanelId = null
                         } else if (showNineKeyMenu) {
                             showNineKeyMenu = false
                         } else if (showAddComponent && !layoutLocked) {
-                            showAddComponent = false
-                            addTargetContainerId = null
-                            addBeforeComponentId = null
+                            showAddComponent = false; addTargetContainerId = null; addBeforeComponentId = null; addTargetGridCell = null
                             folderReturnState.triggerPendingReopen()
                         } else if (showThemeAppearance) {
                             showThemeAppearance = false
@@ -569,6 +647,7 @@ internal fun MinusOneOverlayContainer(
                 RoundedCornerShape(topEnd = cornerRadius, bottomEnd = cornerRadius)
             }
 
+            val panelWindowRect = Rect(geometry.x, geometry.y, geometry.x + geometry.width, geometry.y + geometry.height)
             Box(
                     modifier = Modifier
                         .offset { IntOffset(geometry.x.roundToInt(), geometry.y.roundToInt()) }
@@ -576,30 +655,33 @@ internal fun MinusOneOverlayContainer(
                         .graphicsLayer {
                             val p = latestOpenProgress().coerceIn(0f, 1f)
                             val distance = if (isRightSide) screenWidthPx - geometry.x else geometry.x + geometry.width
-                            translationX = if (isRightSide) {
-                                (1f - p) * distance
-                            } else {
-                                -(1f - p) * distance
-                            }
+                            val slideX = if (isRightSide) (1f - p) * distance else -(1f - p) * distance
                             val resolvedAlpha = when {
                                 isAdjustingBrightness -> 0.25f
                                 triggerZoneExpanded -> 0.42f
                                 else -> p
                             }
-                            alpha = resolvedAlpha
+                            applyPanelWithSubPanelPortal(
+                                baseTranslationX = slideX,
+                                baseAlpha = resolvedAlpha,
+                                portalProgress = subPanelPortalProgress(),
+                                direction = subPanelNav.transitionDirection,
+                                anchorBounds = subPanelNav.transitionAnchorBounds,
+                                panelBounds = panelWindowRect,
+                                style = themeConfig.moduleAnimations.subPanelTransitionStyle
+                            )
                             shape = panelShape
                             clip = true
-                            compositingStrategy = resolveTransitionCompositingStrategy(resolvedAlpha)
                         }
                         .onGloballyPositioned { coordinates ->
                             val rect = coordinates.boundsInWindow()
-                            containerPresentation?.panelBounds = com.example.globalminusone.data.ContainerPopupBounds(
+                            containerPresentation?.panelBounds = com.example.globalminusone.data.policy.ContainerPopupBounds(
                                 rect.left.roundToInt(), rect.top.roundToInt(), rect.right.roundToInt(), rect.bottom.roundToInt())
                         }
-                        .clip(panelShape)
                         .background(palette.panelBackgroundBrush)
+                        .subPanelPortalRim(subPanelPortalProgress, subPanelNav.transitionDirection, palette.accent, cornerRadius, themeConfig.moduleAnimations.subPanelTransitionStyle)
                 ) {
-                    val animMs = themeConfig.animationDurationMs.coerceIn(0, 800)
+                    val animMs = themeConfig.resolvedModalMenuMs()
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -612,9 +694,10 @@ internal fun MinusOneOverlayContainer(
                                 animationSpec = MotionTokens.chromeFadeSpec(animMs),
                                 label = "panel-chrome-alpha"
                             )
-                            val pillSurface = if (palette.isDark) Color(0xFF1F242D).copy(alpha = 0.88f) else Color(0xFFFDFEFF).copy(alpha = 0.90f)
-                            val pillBorder = BorderStroke(0.8.dp, if (palette.isDark) Color(0xFF39414F) else Color(0xFFDDE3EC))
-                            val pillDivider = if (palette.isDark) Color(0xFF39414F) else Color(0xFFE3E8F0)
+                            val headerTokens = panelOverlayTokens(palette)
+                            val pillSurface = headerTokens.elevatedSurface.copy(alpha = 0.90f)
+                            val pillBorder = BorderStroke(0.75.dp, headerTokens.border)
+                            val pillDivider = headerTokens.divider
                             BoxWithConstraints(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 10.dp)) {
                                 val iconOnly = maxWidth < 268.dp * LocalDensity.current.fontScale
                                 val headerScroll = rememberScrollState()
@@ -627,7 +710,87 @@ internal fun MinusOneOverlayContainer(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    // 左侧工具胶囊：浏览器 | 文件
+                                    // 左侧工具胶囊：在子面板中显示返回与设置；主面板显示 浏览器 | 文件
+                                    Surface(
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = pillSurface,
+                                        border = pillBorder
+                                    ) {
+                                        val headerSubPanel = activeSubPanel
+                                        if (headerSubPanel != null) {
+                                            SubPanelHeaderPill(
+                                                subPanel = headerSubPanel,
+                                                isEditMode = isEditMode,
+                                                pillDivider = pillDivider,
+                                                palette = palette,
+                                                onExitSubPanel = { subPanelNav.pop(activeScopeId) },
+                                                onOpenSettings = {
+                                                    if (allowLayoutEdit()) subPanelNav.editingSubPanelId = headerSubPanel.id
+                                                }
+                                            )
+                                        } else {
+                                            Row(
+                                                Modifier.height(36.dp).padding(horizontal = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Row(
+                                                    Modifier
+                                                        .clip(RoundedCornerShape(10.dp))
+                                                        .clickable(enabled = !isEditMode) {
+                                                            showFileBrowser = false
+                                                            previewFileShortcut = null
+                                                            showBrowser = true
+                                                        }
+                                                        .height(32.dp)
+                                                        .padding(horizontal = if (iconOnly) 10.dp else 10.dp)
+                                                        .semantics { contentDescription = "浏览器" },
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                                ) {
+                                                    Icon(Icons.Language, null, Modifier.size(16.dp), tint = palette.accent)
+                                                    if (!iconOnly) {
+                                                        Text(
+                                                            "浏览器",
+                                                            color = palette.textPrimary,
+                                                            fontSize = 12.sp,
+                                                            fontWeight = FontWeight.Medium,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                    }
+                                                }
+                                                Box(Modifier.width(0.8.dp).height(16.dp).background(pillDivider))
+                                                Row(
+                                                    Modifier
+                                                        .clip(RoundedCornerShape(10.dp))
+                                                        .clickable(enabled = !isEditMode) {
+                                                            previewFileShortcut = null
+                                                            showBrowser = false
+                                                            showFileBrowser = true
+                                                        }
+                                                        .height(32.dp)
+                                                        .padding(horizontal = if (iconOnly) 10.dp else 10.dp)
+                                                        .semantics { contentDescription = "文件浏览" },
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                                ) {
+                                                    Icon(Icons.Rounded.Folder, null, Modifier.size(16.dp), tint = palette.accent)
+                                                    if (!iconOnly) {
+                                                        Text(
+                                                            "文件",
+                                                            color = palette.textPrimary,
+                                                            fontSize = 12.sp,
+                                                            fontWeight = FontWeight.Medium,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // 右侧快捷胶囊：仅保留添加与编辑（页面与菜单统一由底栏胶囊承担）
                                     Surface(
                                         shape = RoundedCornerShape(14.dp),
                                         color = pillSurface,
@@ -635,72 +798,6 @@ internal fun MinusOneOverlayContainer(
                                     ) {
                                         Row(
                                             Modifier.height(36.dp).padding(horizontal = 4.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Row(
-                                                Modifier
-                                                    .clip(RoundedCornerShape(10.dp))
-                                                    .clickable(enabled = !isEditMode) {
-                                                        showFileBrowser = false
-                                                        previewFileShortcut = null
-                                                        showBrowser = true
-                                                    }
-                                                    .height(32.dp)
-                                                    .padding(horizontal = if (iconOnly) 10.dp else 10.dp)
-                                                    .semantics { contentDescription = "浏览器" },
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                            ) {
-                                                Icon(Icons.Language, null, Modifier.size(16.dp), tint = palette.accent)
-                                                if (!iconOnly) {
-                                                    Text(
-                                                        "浏览器",
-                                                        color = palette.textPrimary,
-                                                        fontSize = 12.sp,
-                                                        fontWeight = FontWeight.Medium,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                }
-                                            }
-                                            Box(Modifier.width(0.8.dp).height(16.dp).background(pillDivider))
-                                            Row(
-                                                Modifier
-                                                    .clip(RoundedCornerShape(10.dp))
-                                                    .clickable(enabled = !isEditMode) {
-                                                        previewFileShortcut = null
-                                                        showBrowser = false
-                                                        showFileBrowser = true
-                                                    }
-                                                    .height(32.dp)
-                                                    .padding(horizontal = if (iconOnly) 10.dp else 10.dp)
-                                                    .semantics { contentDescription = "文件浏览" },
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                            ) {
-                                                Icon(Icons.Rounded.Folder, null, Modifier.size(16.dp), tint = palette.accent)
-                                                if (!iconOnly) {
-                                                    Text(
-                                                        "文件",
-                                                        color = palette.textPrimary,
-                                                        fontSize = 12.sp,
-                                                        fontWeight = FontWeight.Medium,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    // 右侧操作胶囊：添加 | 编辑 | 页面与菜单
-                                    Surface(
-                                        shape = RoundedCornerShape(14.dp),
-                                        color = pillSurface,
-                                        border = pillBorder
-                                    ) {
-                                        Row(
-                                            Modifier.height(36.dp).padding(horizontal = 3.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             IconButton(
@@ -733,66 +830,31 @@ internal fun MinusOneOverlayContainer(
                                                     tint = if (layoutLocked) palette.textSecondary.copy(alpha = 0.45f) else palette.textPrimary
                                                 )
                                             }
-                                            Box(Modifier.width(0.8.dp).height(16.dp).background(pillDivider))
-                                            IconButton(
-                                                onClick = { showNineKeyMenu = true },
-                                                enabled = !isEditMode,
-                                                modifier = Modifier.size(34.dp)
-                                            ) {
-                                                Icon(
-                                                    Icons.Rounded.GridView,
-                                                    contentDescription = "页面与菜单",
-                                                    modifier = Modifier.size(17.dp),
-                                                    tint = palette.accent
-                                                )
-                                            }
                                         }
                                     }
                                 }
                             }
-                            val pagerSnapSpec = remember(animMs) { resolvePagerSnapAnimationSpec(animMs) }
-                            val pagerFlingBehavior = PagerDefaults.flingBehavior(
+                            // 多页常驻循环滑动容器与 12 种转场动画（编辑模式下禁用左右滑动，防止抢占卡片拖拽手势）
+                            ResidentLoopPager(
                                 state = pagerState,
-                                snapAnimationSpec = pagerSnapSpec,
-                                snapPositionalThreshold = 0.38f
-                            )
-                            // 多页横向滑动容器与 12 种转场动画（编辑模式下禁用左右滑动，防止抢占卡片拖拽手势）
-                            HorizontalPager(
-                                state = pagerState,
-                                key = { loopPager.key(it) },
-                                beyondViewportPageCount = 1,
-                                flingBehavior = pagerFlingBehavior,
+                                pageKey = { visiblePageIds.getOrElse(it) { "empty" } },
+                                transition = themeConfig.pageTransition,
+                                pageSwitchMs = themeConfig.resolvedPageSwitchMs(),
                                 userScrollEnabled = pageCount > 1 && !isEditMode && modalHost.entry == null && !overlayPortal.hasEntries && !gestureOwnership.exclusiveHorizontalActive,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .weight(1f)
-                            ) { virtualPageIndex ->
-                                val pageIndex = loopPager.realIndex(virtualPageIndex)
-                                val targetPage = pageRenderState.pages.getOrNull(pageIndex) ?: return@HorizontalPager
-                                val isViewportActive by remember(pagerState, virtualPageIndex) {
+                            ) { localPageIndex ->
+                                val pageIndex = visibleTrueIndices.getOrNull(localPageIndex) ?: return@ResidentLoopPager
+                                val targetPage = pageRenderState.pages.getOrNull(pageIndex) ?: return@ResidentLoopPager
+                                val isViewportActive by remember(pagerState, localPageIndex) {
                                     derivedStateOf {
-                                        pagerState.settledPage == virtualPageIndex ||
-                                            (!pagerState.isScrollInProgress && pagerState.currentPage == virtualPageIndex)
+                                        !pagerState.isScrollInProgress && pagerState.settledRealPage == localPageIndex
                                     }
                                 }
                                 CompositionLocalProvider(
                                     LocalPageViewport provides pageViewports.page(targetPage.id),
                                     LocalPageViewportActive provides isViewportActive
-                                ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .graphicsLayer {
-                                            val pageOffset = (pagerState.currentPage - virtualPageIndex) +
-                                                pagerState.currentPageOffsetFraction
-                                            applyPageTransitionAnimation(
-                                                transition = themeConfig.pageTransition,
-                                                pageOffset = pageOffset,
-                                                width = size.width,
-                                                height = size.height,
-                                                density = density
-                                            )
-                                        }
                                 ) {
                                     when (targetPage.layoutType) {
                                         PageLayoutType.FREE -> {
@@ -825,7 +887,8 @@ internal fun MinusOneOverlayContainer(
                                                 onOpenEditDialog = onOpenEditDialog,
                                                 onOpenBottomNineKeyBar = onOpenBottomNineKeyBar,
                                                 onOpenAddComponent = onOpenAddComponent,
-                                                onAddAboveComponent = onAddAboveComponentTop
+                                                onAddAboveComponent = onAddAboveComponentTop,
+                                                onAddAtGridCell = onOpenAddAtGridCell
                                             )
                                         }
                                         PageLayoutType.LINEAR -> {
@@ -846,14 +909,12 @@ internal fun MinusOneOverlayContainer(
                                         }
                                     }
                                 }
-                                }
                             }
 
                             if (!isEditMode) {
                                 PanelFooterPagePill(
-                                    pagerState = pagerState,
-                                    loopPager = loopPager,
-                                    pages = pageRenderState.pages,
+                                    currentPageProvider = { pagerState.currentRealPage },
+                                    pages = visiblePages,
                                     layoutLocked = layoutLocked,
                                     palette = palette,
                                     chromeAlpha = chromeAlpha,
@@ -869,7 +930,7 @@ internal fun MinusOneOverlayContainer(
                 }
                 if (!isEditMode && !floatingWindowOpen && !showNineKeyMenu && !showAddComponent &&
                     !showThemeAppearance && !showDeletePageConfirm && !showNewPageTypeDialog &&
-                    editingComponent == null
+                    editingComponent == null && subPanelNav.editingSubPanelId == null
                 ) {
                     KeyboardCandidateOverlayLayer(
                         host = keyboardCandidateHost,
@@ -880,31 +941,26 @@ internal fun MinusOneOverlayContainer(
                             }
                     )
                 }
-                val browserWindowPalette = if (browserSession.nightMode) {
+                val darkBrowser = browserSession.nightMode
+                val browserWindowPalette = remember(palette, darkBrowser) {
                     palette.copy(
-                        isDark = true,
-                        cardBackground = Color(0xFF181B22),
-                        cardBorder = Color(0xFF3E4756),
-                        textPrimary = Color(0xFFF2F5FA),
-                        textSecondary = Color(0xFFB5BFCE),
-                        accent = Color(0xFF8AB4F8)
+                        isDark = darkBrowser,
+                        cardBackground = Color(if (darkBrowser) 0xFF181B22 else 0xFFFFFFFF),
+                        cardBorder = Color(if (darkBrowser) 0xFF3E4756 else 0xFFDDE2EA),
+                        textPrimary = Color(if (darkBrowser) 0xFFF2F5FA else 0xFF1F2329),
+                        textSecondary = Color(if (darkBrowser) 0xFFB5BFCE else 0xFF606975),
+                        accent = Color(if (darkBrowser) 0xFF8AB4F8 else 0xFF246BCC)
                     )
-                } else palette.copy(
-                    isDark = false,
-                    cardBackground = Color(0xFFFFFFFF),
-                    cardBorder = Color(0xFFDDE2EA),
-                    textPrimary = Color(0xFF1F2329),
-                    textSecondary = Color(0xFF606975),
-                    accent = Color(0xFF246BCC)
-                )
-                val overlayAnimMs = themeConfig.animationDurationMs.coerceIn(0, 800)
+                }
+                val overlayAnimMs = themeConfig.resolvedModalMenuMs()
+                val containerAnimMs = themeConfig.resolvedContainerPopupMs()
                 // Floating workspaces use the full overlay, independent of panel width, offset and clipping.
                 Box(Modifier.fillMaxSize().graphicsLayer {
                     val windowAlpha = latestOpenProgress().coerceIn(0f, 1f)
                     alpha = windowAlpha
                     compositingStrategy = resolveTransitionCompositingStrategy(windowAlpha)
                 }) {
-                    AnimatedOverlayPresence(visible = showBrowser, animMs = overlayAnimMs) {
+                    AnimatedOverlayPresence(visible = showBrowser, animMs = containerAnimMs) {
                         CompositionLocalProvider(LocalPanelPalette provides browserWindowPalette) {
                             FloatingPanelWindow(
                                 windowId = "chrome",
@@ -924,7 +980,7 @@ internal fun MinusOneOverlayContainer(
                             }
                         }
                     }
-                    AnimatedOverlayPresence(visible = showFileBrowser, animMs = overlayAnimMs) {
+                    AnimatedOverlayPresence(visible = showFileBrowser, animMs = containerAnimMs) {
                         FloatingFileBrowser(repository = repository,
                             onContentVisibilityChanged = { fileWindowContentVisible = it },
                             initialFile = state.pages.firstNotNullOfOrNull { it.components.findComponent(previewFileShortcut?.id.orEmpty()) } ?: previewFileShortcut,
@@ -955,22 +1011,24 @@ internal fun MinusOneOverlayContainer(
                         onDone = { triggerZoneExpanded = false }
                     )
             if (isEditMode) {
-                val editRealPage = loopPager.realIndex(pagerState.currentPage)
-                val curPage = pageRenderState.pages.getOrNull(editRealPage)
+                val editLocalPage = pagerState.currentRealPage
+                val editTruePage = visibleTrueIndices.getOrNull(editLocalPage) ?: 0
+                val curPage = pageRenderState.pages.getOrNull(editTruePage)
+                val selectedCard = state.selectedComponentId?.let { selectedId -> curPage?.components?.findComponent(selectedId) }
                 EditModeTopBanner(
-                    currentPage = editRealPage,
-                    totalPages = pageRenderState.pages.size.coerceAtLeast(1),
+                    currentPage = editLocalPage,
+                    totalPages = visiblePages.size.coerceAtLeast(1),
                     isLinearPage = curPage?.layoutType == PageLayoutType.LINEAR,
                     layoutType = curPage?.layoutType ?: PageLayoutType.FREE,
                     onPrevPage = {
-                        if (pageCount > 1) navigatePage(Math.floorMod(editRealPage - 1, pageCount), direction = -1)
+                        if (pageCount > 1) navigatePage(Math.floorMod(editLocalPage - 1, pageCount), direction = -1)
                     },
                     onNextPage = {
-                        if (pageCount > 1) navigatePage((editRealPage + 1) % pageCount, direction = 1)
+                        if (pageCount > 1) navigatePage((editLocalPage + 1) % pageCount, direction = 1)
                     },
                     onToggleLayoutType = {
                         if (allowLayoutEdit()) {
-                            val pageId = pageRenderState.pages.getOrNull(editRealPage)?.id.orEmpty()
+                            val pageId = curPage?.id.orEmpty()
                             val result = repository.tryTogglePageLayoutType(pageId)
                             val switched = repository.state.value.pages.firstOrNull { it.id == pageId }?.layoutType?.label ?: "页面布局"
                             reportLayoutMutation(context, result, "已切换为$switched")
@@ -978,7 +1036,7 @@ internal fun MinusOneOverlayContainer(
                     },
                     onSelectLayoutType = { chosen ->
                         if (allowLayoutEdit()) {
-                            val pageId = pageRenderState.pages.getOrNull(editRealPage)?.id.orEmpty()
+                            val pageId = curPage?.id.orEmpty()
                             reportLayoutMutation(context, repository.trySetPageLayoutType(pageId, chosen), "已切换为${chosen.label}")
                         }
                     },
@@ -1005,12 +1063,15 @@ internal fun MinusOneOverlayContainer(
                     onPanelNumbers = { panelNumbersOpen = true },
                     onNewPage = { if (allowLayoutEdit()) showNewPageTypeDialog = true },
                     onCompactGrid = if (curPage?.layoutType == PageLayoutType.GRID) ({
-                        repository.compactPageGridPlacements(editRealPage)
+                        repository.compactPageGridPlacements(editTruePage)
                     }) else null,
                     pageName = curPage?.name.orEmpty(),
-                    onCardProperties = state.selectedComponentId?.let { selectedId ->
-                        curPage?.components?.findComponent(selectedId)?.let { selected -> ({ editingComponent = selected }) }
-                    }
+                    onCardProperties = selectedCard?.let { selected -> ({ editingComponent = selected }) },
+                    selectedCardTitle = selectedCard?.title?.takeIf { it.isNotBlank() } ?: selectedCard?.type?.label,
+                    onClearSelection = { repository.selectComponent(null) },
+                    subPanelTitle = activeSubPanel?.name,
+                    onExitSubPanel = activeSubPanel?.let { ({ subPanelNav.pop(activeScopeId) }) },
+                    onSubPanelSettings = activeSubPanel?.let { sp -> ({ subPanelNav.editingSubPanelId = sp.id }) }
                 )
             }
 
@@ -1032,10 +1093,11 @@ internal fun MinusOneOverlayContainer(
                             } }
                         )
                         AnimatedOverlayPresence(visible = showNineKeyMenu, animMs = overlayAnimMs) {
-                            val modalRealPage = loopPager.realIndex(pagerState.currentPage)
+                            val modalLocalPage = pagerState.currentRealPage
+                            val modalRealPage = visibleTrueIndices.getOrNull(modalLocalPage) ?: 0
                             BottomNineKeyModal(
-                                state = state,
-                                currentPageIndex = modalRealPage,
+                                state = state.copy(pages = visiblePages, currentPageIndex = modalLocalPage),
+                                currentPageIndex = modalLocalPage,
                                 onDismiss = { showNineKeyMenu = false },
                                 onToggleEditMode = {
                                     if (allowLayoutEdit()) {
@@ -1114,37 +1176,59 @@ internal fun MinusOneOverlayContainer(
                                     }
                                 },
                                 onNavigatePage = { target ->
-                                    navigatePage(Math.floorMod(target, pageCount), direction = if (target > modalRealPage) 1 else -1)
+                                    navigatePage(Math.floorMod(target, pageCount), direction = if (target > modalLocalPage) 1 else -1)
                                 },
                                 onOpenPanelSize = {
                                     showNineKeyMenu = false
                                     themeInitialSection = "面板尺寸与布局"
                                     showThemeAppearance = true
+                                },
+                                onToggleLockOpenPage = {
+                                    val targetId = state.pages.getOrNull(modalRealPage)?.id.orEmpty()
+                                    val adv = repository.state.value.advancedConfig
+                                    val isCurrentlyLockedHere =
+                                        adv.panelOpenPageMode == com.example.globalminusone.data.policy.PanelOpenPageMode.LOCKED_PAGE &&
+                                            adv.lockedOpenPageId == targetId
+                                    val saved = repository.updateAdvancedConfig {
+                                        if (isCurrentlyLockedHere) {
+                                            it.copy(
+                                                panelOpenPageMode = com.example.globalminusone.data.policy.PanelOpenPageMode.LAST_VISITED
+                                            )
+                                        } else {
+                                            it.copy(
+                                                panelOpenPageMode = com.example.globalminusone.data.policy.PanelOpenPageMode.LOCKED_PAGE,
+                                                lockedOpenPageId = targetId
+                                            )
+                                        }
+                                    }
+                                    val msg = when {
+                                        !saved -> "保存唤出页面设置失败，请重试"
+                                        isCurrentlyLockedHere -> "已恢复打开上次离开的面板"
+                                        else -> "已设为唤出时默认打开此页"
+                                    }
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                 }
                             )
                         }
 
                         // 添加组件分类选择弹窗
                         AnimatedOverlayPresence(visible = showAddComponent && !layoutLocked, animMs = overlayAnimMs) {
-                            val modalRealPage = loopPager.realIndex(pagerState.currentPage)
+                            val modalRealPage = visibleTrueIndices.getOrNull(pagerState.currentRealPage) ?: 0
                             AddComponentModal(
                                 currentPageIndex = modalRealPage,
                                 repository = repository,
                                 targetContainerId = addTargetContainerId,
                                 beforeComponentId = addBeforeComponentId,
+                                targetGridCell = addTargetGridCell,
                                 onRequestBindWidget = { pageId ->
-                                    showAddComponent = false
-                                    folderReturnState.clear()
+                                    showAddComponent = false; folderReturnState.clear()
                                     if (allowLayoutEdit()) {
-                                        onRequestBindWidget(pageId, addTargetContainerId, addBeforeComponentId)
+                                        onRequestBindWidget(pageId, addTargetContainerId, addBeforeComponentId, addTargetGridCell)
                                     }
-                                    addTargetContainerId = null
-                                    addBeforeComponentId = null
+                                    addTargetContainerId = null; addBeforeComponentId = null; addTargetGridCell = null
                                 },
                                 onDismiss = {
-                                    showAddComponent = false
-                                    addTargetContainerId = null
-                                    addBeforeComponentId = null
+                                    showAddComponent = false; addTargetContainerId = null; addBeforeComponentId = null; addTargetGridCell = null
                                     folderReturnState.triggerPendingReopen()
                                 }
                             )
@@ -1152,7 +1236,7 @@ internal fun MinusOneOverlayContainer(
 
                         // 主题与外观微调弹窗
                         AnimatedOverlayPresence(visible = showThemeAppearance, animMs = overlayAnimMs) {
-                            val modalRealPage = loopPager.realIndex(pagerState.currentPage)
+                            val modalRealPage = visibleTrueIndices.getOrNull(pagerState.currentRealPage) ?: 0
                             ThemeAppearanceModal(
                                 currentPageIndex = modalRealPage,
                                 state = state,
@@ -1164,7 +1248,7 @@ internal fun MinusOneOverlayContainer(
 
                         // 删除页面确认弹窗
                         if (showDeletePageConfirm && !layoutLocked) {
-                            val modalRealPage = loopPager.realIndex(pagerState.currentPage)
+                            val modalRealPage = visibleTrueIndices.getOrNull(pagerState.currentRealPage) ?: 0
                             DeletePageConfirmModal(
                                 onConfirm = {
                                     showDeletePageConfirm = false
@@ -1180,13 +1264,26 @@ internal fun MinusOneOverlayContainer(
                                 onSelectType = { layoutType ->
                                     showNewPageTypeDialog = false
                                     if (allowLayoutEdit()) {
-                                        repository.addPage(layoutType)
+                                        repository.addPage(layoutType, subPanelId = activeScopeId)
                                     }
                                 },
                                 onSelectPreset = { preset, customName ->
                                     showNewPageTypeDialog = false
                                     if (allowLayoutEdit()) {
-                                        repository.addPagePreset(preset, customName)
+                                        repository.addPagePreset(preset, customName, subPanelId = activeScopeId)
+                                    }
+                                },
+                                onImportFromBackup = {
+                                    showNewPageTypeDialog = false
+                                    val launchImport: () -> Unit = {
+                                        onRequestClose()
+                                        com.example.globalminusone.system.AppAndIntentLauncher.launchMainSettings(context, "CONFIG_IMPORT_PAGE")
+                                    }
+                                    if (repository.state.value.editMode) {
+                                        afterEditExit = launchImport
+                                        requestFinishEditing()
+                                    } else {
+                                        launchImport()
                                     }
                                 },
                                 onDismiss = { showNewPageTypeDialog = false }
@@ -1199,13 +1296,23 @@ internal fun MinusOneOverlayContainer(
                             animMs = overlayAnimMs,
                             keyOf = { it.id }
                         ) { comp ->
-                            val modalRealPage = loopPager.realIndex(pagerState.currentPage)
+                            val modalRealPage = visibleTrueIndices.getOrNull(pagerState.currentRealPage) ?: 0
                             ComponentEditModal(
                                 item = comp,
                                 pageIndex = modalRealPage,
                                 repository = repository,
                                 systemController = systemController,
                                 onDismiss = { editingComponent = null }
+                            )
+                        }
+                        if (!layoutLocked && isPanelOpen) {
+                            SubPanelEditorOverlayHost(
+                                controller = subPanelNav,
+                                state = state,
+                                currentScopeId = activeScopeId,
+                                currentTruePageIndex = visibleTrueIndices.getOrNull(pagerState.currentRealPage) ?: 0,
+                                animMs = overlayAnimMs,
+                                repository = repository
                             )
                         }
                     // Workspace dialogs (tabs, bookmarks, copy/move, dirty editor) use this same host.
@@ -1221,7 +1328,3 @@ internal fun MinusOneOverlayContainer(
         }
     }
 }
-
-// -----------------------------------------------------------------------------------------
-// 12 种页面转场动画 (Page Transition Animations)
-// -----------------------------------------------------------------------------------------

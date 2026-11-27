@@ -2,6 +2,7 @@ package com.example.globalminusone.ui.panel
 
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.ui.panel.editor.HeldDragIntent
 
 class FolderHoldIntentTest {
     @Test fun stationaryHoldKeepsMenuIntentUntilRealMovement() {

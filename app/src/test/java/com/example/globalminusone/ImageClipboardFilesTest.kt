@@ -1,6 +1,6 @@
 package com.example.globalminusone
 
-import com.example.globalminusone.system.ImageClipboardFiles
+import com.example.globalminusone.system.media.ImageClipboardFiles
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test

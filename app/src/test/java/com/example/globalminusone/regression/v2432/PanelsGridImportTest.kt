@@ -7,6 +7,13 @@ import org.junit.Test
 import java.io.ByteArrayOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.ContainerLayoutType
+import com.example.globalminusone.data.policy.GRID_SPAN_FULL_ROW
+import com.example.globalminusone.data.PageLayoutType
+import com.example.globalminusone.data.policy.containerIconSizeDp
+import com.example.globalminusone.data.policy.isContainerGridIcon
 
 class PanelsGridImportTest {
     private fun genuine() = PanelsBackupImporter.parse(requireNotNull(

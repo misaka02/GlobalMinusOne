@@ -21,6 +21,7 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.globalminusone.browser.ChromeSurfaceView
+import com.example.globalminusone.ui.panel.gesture.ownPanelScrollGestures
 
 /**
  * Place inside the movable floating window or panel workspace.

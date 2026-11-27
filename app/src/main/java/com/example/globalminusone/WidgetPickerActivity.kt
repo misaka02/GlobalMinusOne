@@ -1,6 +1,6 @@
 package com.example.globalminusone
 
-import com.example.globalminusone.data.savedWidgetIds
+import com.example.globalminusone.data.operations.savedWidgetIds
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
 import android.content.Intent
@@ -32,7 +32,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.example.globalminusone.ui.AppIcons as Icons
-import com.example.globalminusone.ui.panel.IndexedSelectionList
+import com.example.globalminusone.ui.panel.cards.IndexedSelectionList
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -275,17 +275,16 @@ class WidgetPickerActivity : ComponentActivity() {
             heightDp = 180
         )
 
-        val saved = repository.addBoundWidget(widgetInfo, intent.getStringExtra("target_page_id"), intent.getStringExtra("container_id"), intent.getStringExtra("before_component_id"))
+        val gc = intent.getIntExtra("target_grid_col", -1); val gr = intent.getIntExtra("target_grid_row", -1)
+        val saved = repository.addBoundWidget(widgetInfo, intent.getStringExtra("target_page_id"), intent.getStringExtra("container_id"),
+            intent.getStringExtra("before_component_id"), if (gc >= 0 && gr >= 0) gc to gr else null)
         if (!saved) {
             releasePendingWidgetIds()
             Toast.makeText(this, "布局已锁定或目标容器已删除，未添加小部件", Toast.LENGTH_SHORT).show()
-            finish()
-            return
+            finish(); return
         }
         Toast.makeText(this, "已添加小部件", Toast.LENGTH_SHORT).show()
-        pendingAppWidgetId = null
-        pendingProviderInfo = null
-        finish()
+        pendingAppWidgetId = null; pendingProviderInfo = null; finish()
     }
 
     private fun launchSystemWidgetPicker() {

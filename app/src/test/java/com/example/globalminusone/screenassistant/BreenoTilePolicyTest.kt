@@ -5,6 +5,9 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.system.privilege.RootExecutor
+import com.example.globalminusone.system.privilege.RootProcessOutcome
+import com.example.globalminusone.system.privilege.UserRootSession
 
 class BreenoTilePolicyTest {
     private val target = "com.coloros.directui/com.coloros.directui.ExampleRecognitionTile"

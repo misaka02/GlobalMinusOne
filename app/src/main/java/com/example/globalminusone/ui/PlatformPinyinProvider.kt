@@ -3,7 +3,7 @@ package com.example.globalminusone.ui
 import android.icu.text.AlphabeticIndex
 import android.icu.text.Transliterator
 import android.os.Build
-import com.example.globalminusone.data.PinyinIndexProvider
+import com.example.globalminusone.data.policy.PinyinIndexProvider
 import java.text.Normalizer
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap

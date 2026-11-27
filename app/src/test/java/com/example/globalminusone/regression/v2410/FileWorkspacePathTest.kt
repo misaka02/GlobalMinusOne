@@ -1,9 +1,9 @@
 package com.example.globalminusone.regression.v2410
 
-import com.example.globalminusone.system.BrowserEntry
-import com.example.globalminusone.system.BrowserLocation
-import com.example.globalminusone.ui.panel.FileWorkspacePathPolicy
-import com.example.globalminusone.ui.panel.resolveFileWorkspacePath
+import com.example.globalminusone.system.file.BrowserEntry
+import com.example.globalminusone.system.file.BrowserLocation
+import com.example.globalminusone.ui.panel.file.FileWorkspacePathPolicy
+import com.example.globalminusone.ui.panel.file.resolveFileWorkspacePath
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test

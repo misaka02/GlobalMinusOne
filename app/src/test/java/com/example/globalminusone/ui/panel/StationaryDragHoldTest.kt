@@ -3,6 +3,10 @@ package com.example.globalminusone.ui.panel
 import java.util.concurrent.CancellationException
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.ui.panel.gesture.PanelGestureAxis
+import com.example.globalminusone.ui.panel.gesture.PanelGestureOwnership
+import com.example.globalminusone.ui.panel.gesture.StationaryHoldPolicy
+import com.example.globalminusone.ui.panel.editor.withStationaryDragHold
 
 class StationaryDragHoldTest {
     @Test fun downAndWaitingReserveTheHoldWithoutBlockingEitherScrollAxis() {

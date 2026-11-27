@@ -4,6 +4,7 @@ import com.example.globalminusone.screenassistant.AccessibilityScreenSnapshot
 import kotlinx.coroutines.Job
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.service.capture.OverlayCaptureSession
 
 class OverlayCaptureSessionTest {
     private fun snapshot(packageName: String = "synthetic.app") =

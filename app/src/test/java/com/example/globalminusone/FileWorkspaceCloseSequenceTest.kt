@@ -1,6 +1,6 @@
 package com.example.globalminusone
 
-import com.example.globalminusone.ui.panel.FileWorkspaceCloseSequence
+import com.example.globalminusone.ui.panel.file.FileWorkspaceCloseSequence
 import org.junit.Assert.*
 import org.junit.Test
 

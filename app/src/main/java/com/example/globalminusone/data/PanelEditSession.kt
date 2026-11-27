@@ -1,5 +1,7 @@
 package com.example.globalminusone.data
 
+import com.example.globalminusone.data.operations.savedWidgetIds
+
 /** Only panel configuration is transactional; file bookmarks and live records remain independent. */
 internal data class PanelEditSnapshot(private val saved: GlobalMinusOneState) {
     fun widgetIds(): Set<Int> = saved.savedWidgetIds()

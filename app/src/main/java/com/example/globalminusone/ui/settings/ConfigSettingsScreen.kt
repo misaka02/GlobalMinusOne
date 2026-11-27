@@ -116,6 +116,7 @@ import com.example.globalminusone.service.OverlayService
 @Composable
 internal fun ConfigSettingsScreen(
     repository: MinusOneRepository,
+    autoLaunchPageImportToken: Long = 0L,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -159,7 +160,7 @@ internal fun ConfigSettingsScreen(
                 }
             }
             HorizontalDivider(Modifier.padding(horizontal = 20.dp))
-            NativeBackupEntry(repository)
+            NativeBackupEntry(repository, autoLaunchPageImportToken = autoLaunchPageImportToken)
             HorizontalDivider(Modifier.padding(horizontal = 20.dp))
             PanelsImportEntry(repository)
         }

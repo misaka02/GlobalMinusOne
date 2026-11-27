@@ -1,10 +1,16 @@
 package com.example.globalminusone.regression.v2421
 
 import com.example.globalminusone.system.*
-import com.example.globalminusone.ui.panel.fileBrowserEmptyMessage
+import com.example.globalminusone.ui.panel.file.fileBrowserEmptyMessage
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.system.file.BrowserEntry
+import com.example.globalminusone.system.file.BrowserLocation
+import com.example.globalminusone.system.file.FileCategory
+import com.example.globalminusone.system.file.location
+import com.example.globalminusone.system.file.matchesQuickFilter
+import com.example.globalminusone.system.file.searchFileTree
 
 class FileFilterScopeTest {
     private val root = BrowserLocation("存储", path = "/storage/emulated/0")

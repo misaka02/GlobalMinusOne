@@ -10,6 +10,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.storage.ConfigurationCodec
+import com.example.globalminusone.data.storage.ConfigurationSectionEncoder
 
 /** Desktop encoding samples only: includes JSON assembly, excludes preferences and disk I/O. */
 class ConfigurationSectionEncodingMeasurementTest {

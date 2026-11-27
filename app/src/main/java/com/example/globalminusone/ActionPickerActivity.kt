@@ -14,6 +14,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -26,9 +27,12 @@ import com.example.globalminusone.system.DeviceShortcutDiscovery
 import com.example.globalminusone.system.DeviceShortcutProviderInfo
 import com.example.globalminusone.system.ShortcutDiscoveryPolicy
 import com.example.globalminusone.theme.SettingsTheme
-import com.example.globalminusone.ui.panel.IndexedSelectionList
+import com.example.globalminusone.ui.panel.cards.IndexedSelectionList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.MinusOneRepository
 
 private data class ActivityChoice(val component: ComponentName, val label: String, val app: String)
 
@@ -63,6 +67,7 @@ class ActionPickerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        pendingShortcutProviderPkg = savedInstanceState?.getString(STATE_PENDING_SHORTCUT_PKG)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() { finishPicker() }
         })
@@ -81,7 +86,12 @@ class ActionPickerActivity : ComponentActivity() {
         if (request?.kind == ActionPickerKind.CREATE_SHORTCUT) {
             setContent {
                 val state by repository.state.collectAsState()
-                SettingsTheme(state.advancedConfig.settingsDarkMode) {
+                val darkTheme = if (state.advancedConfig.settingsFollowSystemTheme) {
+                    isSystemInDarkTheme()
+                } else {
+                    state.advancedConfig.settingsDarkMode
+                }
+                SettingsTheme(darkTheme) {
                     var providers by remember { mutableStateOf<List<DeviceShortcutProviderInfo>>(emptyList()) }
                     var loading by remember { mutableStateOf(true) }
                     LaunchedEffect(Unit) {
@@ -125,7 +135,12 @@ class ActionPickerActivity : ComponentActivity() {
         }
         setContent {
             val state by repository.state.collectAsState()
-            SettingsTheme(state.advancedConfig.settingsDarkMode) {
+            val darkTheme = if (state.advancedConfig.settingsFollowSystemTheme) {
+                isSystemInDarkTheme()
+            } else {
+                state.advancedConfig.settingsDarkMode
+            }
+            SettingsTheme(darkTheme) {
                 var choices by remember { mutableStateOf<List<ActivityChoice>>(emptyList()) }
                 var loading by remember { mutableStateOf(true) }
                 LaunchedEffect(Unit) {
@@ -306,7 +321,9 @@ class ActionPickerActivity : ComponentActivity() {
 
     private fun save(item: ComponentItem) {
         val target = request
-        val saved = target != null && repository.placeMenuComponent(target.pageId, target.containerId, item, target.beforeComponentId)
+        val saved = target != null && repository.placeMenuComponent(
+            target.pageId, target.containerId, item, target.beforeComponentId, target.targetGridCell
+        )
         Toast.makeText(this, if (saved) "已添加${item.title}" else repository.persistenceError.value
             ?: "布局已锁定或原目标已失效，未添加", Toast.LENGTH_SHORT).show()
         if (!saved) repository.acknowledgePersistenceError()
@@ -317,5 +334,14 @@ class ActionPickerActivity : ComponentActivity() {
             OverlayService.start(this, OverlayService.ACTION_OPEN_PANEL)
         }
         finish()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        pendingShortcutProviderPkg?.let { outState.putString(STATE_PENDING_SHORTCUT_PKG, it) }
+    }
+
+    private companion object {
+        const val STATE_PENDING_SHORTCUT_PKG = "pending_shortcut_provider_pkg"
     }
 }

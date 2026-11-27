@@ -4,6 +4,12 @@ import android.content.SharedPreferences
 import com.example.globalminusone.MemoryPreferences
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.operations.ComponentGridOperations
+import com.example.globalminusone.data.storage.ConfigurationCodec
+import com.example.globalminusone.data.policy.containerIconSizeDp
+import com.example.globalminusone.data.policy.containerRowGapDp
+import com.example.globalminusone.data.policy.resolveContainerGridDropPlacements
+import com.example.globalminusone.data.policy.resolvePageGridDropPlacements
 
 class ComponentGridOperationsTest {
     @Test fun pagePlacementAndNudgeKeepManualGapsAndAllOtherCardProperties() {

@@ -1,6 +1,6 @@
 package com.example.globalminusone
 
-import com.example.globalminusone.service.handleOverlayStart
+import com.example.globalminusone.service.overlay.handleOverlayStart
 import org.junit.Assert.*
 import org.junit.Test
 

@@ -4,6 +4,8 @@ import android.content.SharedPreferences
 import com.example.globalminusone.MemoryPreferences
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.operations.ConfigProfileOperations
+import com.example.globalminusone.data.storage.ConfigurationCodec
 
 class ConfigProfileOperationsTest {
     @Test fun snapshotsExcludeProfileLibraryAndEditingStateAndKeepSuppliedIdentityAndMetadata() {

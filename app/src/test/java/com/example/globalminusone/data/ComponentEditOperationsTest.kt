@@ -4,6 +4,12 @@ import android.content.SharedPreferences
 import com.example.globalminusone.MemoryPreferences
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.operations.ComponentInsertionOperations
+import com.example.globalminusone.data.operations.ComponentUpdateOperations
+import com.example.globalminusone.data.storage.ConfigurationCodec
+import com.example.globalminusone.data.policy.GRID_SPAN_FULL_ROW
+import com.example.globalminusone.data.operations.PickedCardOperations
+import com.example.globalminusone.data.operations.findComponent
 
 class ComponentEditOperationsTest {
     @Test fun menuReadsNextYThenRowsEvenWithoutAnchorOrInGridAndInvalidAnchor() {

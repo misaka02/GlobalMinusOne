@@ -8,6 +8,14 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.service.capture.CaptureSurfaceState
+import com.example.globalminusone.service.capture.CapturedFrame
+import com.example.globalminusone.service.capture.OverlayCaptureBackend
+import com.example.globalminusone.service.capture.OverlayCaptureConfig
+import com.example.globalminusone.service.capture.OverlayCaptureSession
+import com.example.globalminusone.service.capture.OverlayCaptureSettings
+import com.example.globalminusone.service.capture.OverlayCaptureUi
+import com.example.globalminusone.service.capture.OverlayScreenCapturePipeline
 
 class OverlayScreenCapturePipelineTest {
     private class Frame(var recycled: Boolean = false) { var recycleCalls = 0 }

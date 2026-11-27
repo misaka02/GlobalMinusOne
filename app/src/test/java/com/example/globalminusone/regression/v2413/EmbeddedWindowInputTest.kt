@@ -1,8 +1,8 @@
 package com.example.globalminusone.regression.v2413
 
 import android.view.WindowManager.LayoutParams
-import com.example.globalminusone.service.applicationWindowInputFlags
-import com.example.globalminusone.service.embeddedHostFocusFlags
+import com.example.globalminusone.service.embedded.applicationWindowInputFlags
+import com.example.globalminusone.service.embedded.embeddedHostFocusFlags
 import org.junit.Assert.*
 import org.junit.Test
 

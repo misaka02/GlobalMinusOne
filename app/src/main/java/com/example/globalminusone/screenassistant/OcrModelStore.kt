@@ -660,7 +660,10 @@ internal class OcrModelStore(private val context: Context) {
         downloadGate.withLock {
             check(isDeviceArm64()) { "当前设备不是 arm64-v8a 架构" }
             check(cachedNativeCatalog()?.revoked != true) { "在线目录已撤回当前原生 OCR 版本" }
+            val keepHashes = readInstalledNativeRecord()?.members?.map { it.sha256 }?.toSet().orEmpty()
+            val stagedHashes = mutableListOf<String>()
             val tmpZip = createTempFileIn(nativeDir)
+            var committed = false
             try {
                 copyUriBoundedToTemp(context, uri, tmpZip, 64L * 1024 * 1024, "无法读取所选 ZIP 包", "原生 OCR ZIP 包超出安全大小")
                 val imported = mutableListOf<NativeOcrMember>()
@@ -677,14 +680,17 @@ internal class OcrModelStore(private val context: Context) {
                         val asset = zf.getInputStream(entry).use { stream ->
                             importLocalFile(nativeDir, entry.name, PeekingInputStream(stream, peek) { nPeek = it }, 64L * 1024 * 1024)
                         }
+                        stagedHashes += asset.sha256
                         check(nPeek >= 20 && isElf64AArch64Header(peek)) { "${entry.name} 不是有效的 ARM64 ELF 文件" }
                         imported += NativeOcrMember(entry.name, entry.name == "gmo-ocr-native", asset.bytes, asset.sha256)
                     }
                 }
-                NativeInstalledRecord("1.0.0", "1.22.0", 0L, imported).also {
-                    writeMetadata(nativeRecordFile, json.encodeToString(it))
-                }
+                NativeInstalledRecord("1.0.0", "1.22.0", 0L, imported).also { writeMetadata(nativeRecordFile, json.encodeToString(it)) }
+                    .also { committed = true }
             } finally {
+                if (!committed) stagedHashes.filter { it !in keepHashes }.forEach { h ->
+                    File(nativeDir, h).delete(); verifiedStamps.remove(h)
+                }
                 tmpZip.delete()
             }
         }
@@ -692,10 +698,7 @@ internal class OcrModelStore(private val context: Context) {
 
     suspend fun deleteNativeRuntime() = withContext(Dispatchers.IO) {
         downloadGate.withLock {
-            readInstalledNativeRecord()?.members?.forEach {
-                File(nativeDir, it.sha256).delete()
-                verifiedStamps.remove(it.sha256)
-            }
+            readInstalledNativeRecord()?.members?.forEach { File(nativeDir, it.sha256).delete(); verifiedStamps.remove(it.sha256) }
             nativeRecordFile.delete()
         }
     }
@@ -705,10 +708,7 @@ internal class OcrModelStore(private val context: Context) {
         else runCatching { json.decodeFromString<NativeInstalledRecord>(readMetadata(nativeRecordFile)) }.getOrNull()
 
     private fun hasValidElf64AArch64Header(file: File): Boolean = runCatching {
-        FileInputStream(file).use {
-            val b = ByteArray(24)
-            it.read(b) >= 20 && isElf64AArch64Header(b)
-        }
+        FileInputStream(file).use { val b = ByteArray(24); it.read(b) >= 20 && isElf64AArch64Header(b) }
     }.getOrDefault(false)
 
     private fun resolveUriName(uri: Uri): String? = runCatching {

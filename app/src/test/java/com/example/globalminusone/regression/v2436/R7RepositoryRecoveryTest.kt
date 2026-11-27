@@ -8,6 +8,15 @@ import kotlinx.serialization.encodeToString
 import org.junit.Assert.*
 import org.junit.Test
 import java.nio.file.Files
+import com.example.globalminusone.data.BoundWidgetInfo
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.ConfigProfile
+import com.example.globalminusone.data.CorruptStateBackup
+import com.example.globalminusone.data.GlobalMinusOneState
+import com.example.globalminusone.data.MinusOneRepository
+import com.example.globalminusone.data.PageConfig
+import com.example.globalminusone.data.operations.savedWidgetIds
 
 class R7RepositoryRecoveryTest {
     private fun fixture(): GlobalMinusOneState {

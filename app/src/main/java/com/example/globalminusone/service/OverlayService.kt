@@ -24,12 +24,9 @@ import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.Toast
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -41,6 +38,8 @@ import com.example.globalminusone.R
 import com.example.globalminusone.WidgetPickerActivity
 import com.example.globalminusone.data.GestureAction
 import com.example.globalminusone.data.MinusOneRepository
+import com.example.globalminusone.data.OverlayLayerStatus
+import com.example.globalminusone.data.resolvedPanelOpenCloseMs
 import com.example.globalminusone.data.ShowSideMode
 import com.example.globalminusone.data.SuspensionBallConfig
 import com.example.globalminusone.data.TriggerConfig
@@ -50,8 +49,8 @@ import com.example.globalminusone.data.TriggerWay
 import com.example.globalminusone.system.SystemController
 import com.example.globalminusone.system.AppAndIntentLauncher
 import com.example.globalminusone.ui.panel.MinusOneOverlayContainer
-import com.example.globalminusone.ui.panel.UserIconCache
-import com.example.globalminusone.ui.panel.collectComponentTreeIcons
+import com.example.globalminusone.ui.panel.cards.UserIconCache
+import com.example.globalminusone.ui.panel.container.collectComponentTreeIcons
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -65,6 +64,49 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
+import com.example.globalminusone.service.accessibility.AccessibilityMouseController
+import com.example.globalminusone.service.capture.AndroidOverlayCaptureBackend
+import com.example.globalminusone.service.overlay.AccessibilityWindowTarget
+import com.example.globalminusone.service.overlay.AndroidPanelWindowBinding
+import com.example.globalminusone.service.capture.CaptureSurfaceState
+import com.example.globalminusone.service.overlay.EdgeTriggerHost
+import com.example.globalminusone.service.overlay.EdgeTriggerView
+import com.example.globalminusone.service.embedded.EmbeddedApplicationWindowHost
+import com.example.globalminusone.service.overlay.OverlayBrightnessWindowHost
+import com.example.globalminusone.service.overlay.OverlayPowerGuard
+import com.example.globalminusone.service.capture.OverlayCaptureConfig
+import com.example.globalminusone.service.capture.OverlayCaptureSession
+import com.example.globalminusone.service.capture.OverlayCaptureSettings
+import com.example.globalminusone.service.capture.OverlayCaptureUi
+import com.example.globalminusone.service.overlay.AndroidManagedOverlaySlot
+import com.example.globalminusone.service.capture.OverlayScreenCapturePipeline
+import com.example.globalminusone.service.overlay.OverlayVisibilityPolicy
+import com.example.globalminusone.service.overlay.OverlayWindowCoordination
+import com.example.globalminusone.service.overlay.PanelInputHost
+import com.example.globalminusone.service.overlay.PanelMotionController
+import com.example.globalminusone.service.overlay.PanelWindowBlurPolicy
+import com.example.globalminusone.service.overlay.PanelWindowFactory
+import com.example.globalminusone.service.overlay.PanelWindowHost
+import com.example.globalminusone.service.overlay.PanelWindowInstance
+import com.example.globalminusone.service.overlay.applyPanelRefreshRateHint
+import com.example.globalminusone.service.overlay.collectOverlayLayerStatus
+import com.example.globalminusone.service.overlay.configureFullscreenCutout
+import com.example.globalminusone.service.overlay.createPanelWindowInitialParams
+import com.example.globalminusone.service.overlay.createPanelWindowInstance
+import com.example.globalminusone.service.overlay.resolveAccessibilityWindowTarget
+import com.example.globalminusone.service.overlay.resolveDisplayMaxRefreshRate
+import com.example.globalminusone.service.capture.RegionScreenshotOverlay
+import com.example.globalminusone.service.capture.ScreenAssistantBrowseResumePill
+import com.example.globalminusone.service.capture.ScreenAssistantFrameSnapshot
+import com.example.globalminusone.service.capture.ScreenAssistantOverlay
+import com.example.globalminusone.service.overlay.SuspensionBallHost
+import com.example.globalminusone.service.overlay.SuspensionBallView
+import com.example.globalminusone.service.overlay.calculateEdgeTriggerWindowLayout
+import com.example.globalminusone.service.embedded.embeddedHostFocusFlags
+import com.example.globalminusone.service.overlay.ensureOverlayWindowRegistered
+import com.example.globalminusone.service.overlay.handleOverlayStart
+import com.example.globalminusone.service.overlay.overlayUpdates
+import com.example.globalminusone.service.overlay.replaceWindowInputAdjustment
 
 /**
  * 全局负一屏核心前台悬浮窗与手势服务。
@@ -87,19 +129,27 @@ class OverlayService : Service() {
     private lateinit var systemController: SystemController
     private lateinit var widgetHostManager: WidgetHostManager
     private lateinit var applicationWindows: EmbeddedApplicationWindowHost
-    private lateinit var lifecycleOwner: OverlayComposeLifecycleOwner
+    private var activeAccessibilityTarget: AccessibilityWindowTarget? = null
 
     private val panelComposeView: android.widget.FrameLayout get() = panelWindowBinding.view
     private val panelParams: WindowManager.LayoutParams get() = panelWindowBinding.params
 
-    private var leftTriggerView: EdgeTriggerView? = null
-    private var rightTriggerView: EdgeTriggerView? = null
-    private var topTriggerView: EdgeTriggerView? = null
-    private var bottomTriggerView: EdgeTriggerView? = null
-
-    private var suspensionBallView: SuspensionBallView? = null
+    private val triggerSlots by lazy {
+        listOf(TriggerPosition.LEFT, TriggerPosition.RIGHT, TriggerPosition.TOP, TriggerPosition.BOTTOM)
+            .associateWith { AndroidManagedOverlaySlot<EdgeTriggerView>(this, windowManager) { v -> v.updateGestureExclusion(false) } }
+    }
+    private val suspensionBallSlot by lazy {
+        AndroidManagedOverlaySlot<SuspensionBallView>(this, windowManager) { it.cleanup() }
+    }
+    private val leftTriggerView: EdgeTriggerView? get() = triggerSlots[TriggerPosition.LEFT]?.view
+    private val rightTriggerView: EdgeTriggerView? get() = triggerSlots[TriggerPosition.RIGHT]?.view
+    private val topTriggerView: EdgeTriggerView? get() = triggerSlots[TriggerPosition.TOP]?.view
+    private val bottomTriggerView: EdgeTriggerView? get() = triggerSlots[TriggerPosition.BOTTOM]?.view
+    private val suspensionBallView: SuspensionBallView? get() = suspensionBallSlot.view
     private var accessibilityMouse: AccessibilityMouseController? = null
     private var eyeProtectionView: View? = null
+    private var brightnessWindowHost: OverlayBrightnessWindowHost? = null
+    private var powerGuard: OverlayPowerGuard? = null
     private var regionScreenshotOverlay: RegionScreenshotOverlay? = null
     private var screenAssistantOverlay: ScreenAssistantOverlay? = null
     private var browseResumePill: ScreenAssistantBrowseResumePill? = null
@@ -164,11 +214,15 @@ class OverlayService : Service() {
             this, windowManager, ::getScreenSize,
             config = { repository.state.value.suspensionBallConfig },
             onModeChanged = { active -> suspensionBallView?.onMouseModeChanged(active) },
-            onBallRestoreFailure = { recreateSuspensionBallAfterMouseFailure() }
+            onBallRestoreFailure = { recreateSuspensionBallAfterMouseFailure() },
+            updateSourceLayout = { view, params -> suspensionBallHost.updateBallLayout(view, params) }
         )
-        if (!::widgetHostManager.isInitialized) {
-            widgetHostManager = WidgetHostManager.getInstance(this)
-            widgetHostManager.startListening()
+        if (!::widgetHostManager.isInitialized) widgetHostManager = WidgetHostManager.getInstance(this)
+        if (powerGuard == null) {
+            powerGuard = OverlayPowerGuard(this, serviceScope, widgetHostManager,
+                hasWidgets = { repository.retainedWidgetIdsForHost().isNotEmpty() },
+                onScreenInteractiveChanged = { suspensionBallView?.setScreenInteractive(it) }
+            ).also { it.register() }
         }
 
         if (!::applicationWindows.isInitialized) applicationWindows = EmbeddedApplicationWindowHost(this, repository, serviceScope) { pending ->
@@ -203,7 +257,7 @@ class OverlayService : Service() {
                 onAnalyzeRegion = ::openCroppedScreenAssistant
             )
         }
-        if (!panelWindowBinding.hasView) setupPanelOverlayWindow() else recoverPanelWindow()
+        if (!panelWindowBinding.hasParams) setupPanelOverlayWindow() else recoverPanelWindow()
         if (!packageReceiverRegistered) {
             val filter = IntentFilter().apply {
                 addAction(Intent.ACTION_PACKAGE_ADDED)
@@ -216,6 +270,26 @@ class OverlayService : Service() {
                 true
             }.getOrDefault(false)
         }
+        if (brightnessWindowHost == null) {
+            brightnessWindowHost = OverlayBrightnessWindowHost(
+                context = this,
+                windowManager = windowManager,
+                isDestroying = { windowCoordination.destroying },
+                isAuthorizationPending = { windowCoordination.authorizationPending },
+                syncPanelBrightness = { brightness ->
+                    if (panelWindowBinding.hasParams && panelParams.screenBrightness != brightness) {
+                        panelParams.screenBrightness = brightness
+                        if (panelRegistered && panelWindowBinding.hasView && panelComposeView.isAttachedToWindow) {
+                            runCatching { panelWindowBinding.updateLayout() }
+                        }
+                    }
+                },
+                onScreenOff = {
+                    if (::systemController.isInitialized) systemController.clearOverlayBrightnessOverride()
+                }
+            )
+        }
+        brightnessWindowHost?.registerScreenOff()
         // Mark once before starting collectors, which can immediately emit current state.
         initialized = true
         serviceScope.launch {
@@ -226,11 +300,24 @@ class OverlayService : Service() {
             }
         }
         serviceScope.launch {
+            systemController.overlayBrightnessOverride.collect { brightness ->
+                brightnessWindowHost?.apply(brightness)
+            }
+        }
+        serviceScope.launch {
             GlobalAccessibilityService.connectedState.collect { connected ->
                 if (!connected) accessibilityMouse?.exit()
-                panelWindowHost.resetAccessibilityFailure()
-                if (initialized && panelWindowBinding.hasView && repository.state.value.advancedConfig.highestOverlayLevel) {
+                resetAccessibilityLayerFailures()
+                if (initialized && panelWindowBinding.hasParams &&
+                    (repository.state.value.advancedConfig.highestOverlayLevel ||
+                        panelWindowHost.activeType == WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
+                ) {
                     recoverPanelWindow()
+                    updateTriggerViews()
+                    updateSuspensionBallView()
+                    publishRunningState()
+                } else if (initialized) {
+                    publishOverlayLayerStatus()
                 }
             }
         }
@@ -358,6 +445,8 @@ class OverlayService : Service() {
             packageReceiverRegistered = false
             runCatching { unregisterReceiver(packageChangeReceiver) }
         }
+        brightnessWindowHost?.destroy()
+        brightnessWindowHost = null
         captureSession.cancelRegionCapture()
         captureSession.cancelBreenoLaunch()
         underlyingScrollJob?.cancel()
@@ -374,35 +463,20 @@ class OverlayService : Service() {
         }
         if (::applicationWindows.isInitialized) applicationWindows.destroy()
 
-        leftTriggerView = removeEdgeTrigger(leftTriggerView)
-        rightTriggerView = removeEdgeTrigger(rightTriggerView)
-        topTriggerView = removeEdgeTrigger(topTriggerView)
-        bottomTriggerView = removeEdgeTrigger(bottomTriggerView)
-
-        suspensionBallView?.let {
-            it.cleanup()
-            try { windowManager.removeView(it) } catch (_: Exception) {}
-            suspensionBallView = null
-        }
+        removeAllEdgeTriggers()
+        removeSuspensionBallWindow()
 
         eyeProtectionView?.let {
             try { windowManager.removeView(it) } catch (_: Exception) {}
             eyeProtectionView = null
         }
 
-        if (panelWindowBinding.hasView) {
-            try { panelWindowBinding.remove() } catch (_: Exception) {}
-        }
+        panelWindowBinding.destroy()
+        repository.updateOverlayLayerStatus(OverlayLayerStatus())
 
-        if (::lifecycleOwner.isInitialized) {
-            lifecycleOwner.onPause()
-            lifecycleOwner.onStop()
-            lifecycleOwner.onDestroy()
-        }
-
-        if (::widgetHostManager.isInitialized) {
-            widgetHostManager.stopListening()
-        }
+        powerGuard?.destroy()
+        powerGuard = null
+        if (::widgetHostManager.isInitialized) widgetHostManager.stopListening()
 
         if (::systemController.isInitialized) {
             systemController.release()
@@ -423,17 +497,28 @@ class OverlayService : Service() {
                 val removedWidgetIds = retainedWidgetIds - currentRetainedWidgetIds
                 removedWidgetIds.forEach(widgetHostManager::deleteWidgetId)
                 retainedWidgetIds = currentRetainedWidgetIds
-                val changes = overlayUpdates(previous, current)
-                if (previous?.advancedConfig?.highestOverlayLevel != current.advancedConfig.highestOverlayLevel) {
-                    panelWindowHost.resetAccessibilityFailure()
-                    if (panelWindowBinding.hasView) recoverPanelWindow()
+                powerGuard?.syncWidgetPresence()
+                val prev = previous
+                val changes = overlayUpdates(prev, current)
+                val overlayLayerChanged = prev != null &&
+                    prev.advancedConfig.highestOverlayLevel != current.advancedConfig.highestOverlayLevel
+                if (overlayLayerChanged) {
+                    resetAccessibilityLayerFailures()
+                    if (panelWindowBinding.hasParams) recoverPanelWindow()
+                    updateTriggerViews()
+                    updateSuspensionBallView()
                 }
-                if (changes.triggers) { updateTriggerViews(); checkTempDisabled() }
-                if (changes.ball) updateSuspensionBallView()
+                if (changes.triggers && !overlayLayerChanged) {
+                    updateTriggerViews(); checkTempDisabled()
+                } else if (changes.triggers) {
+                    checkTempDisabled()
+                }
+                if (changes.ball && !overlayLayerChanged) {
+                    updateSuspensionBallView()
+                }
                 if (changes.eye) updateEyeProtectionWindow()
                 if (changes.blur) applyBlurSettings()
                 if (changes.visibility) updateTriggerViewsVisibility()
-                val prev = previous
                 if (prev == null || prev.pages != current.pages ||
                     prev.appAppearanceOverrides != current.appAppearanceOverrides
                 ) {
@@ -461,7 +546,8 @@ class OverlayService : Service() {
             }
         }
         serviceScope.launch {
-            repository.currentForegroundPackage.collect {
+            repository.currentForegroundPackage.collect { pkg ->
+                systemController.onForegroundPackageChanged(pkg)
                 updateTriggerViewsVisibility()
             }
         }
@@ -477,15 +563,6 @@ class OverlayService : Service() {
                 delay(remainingMs)
                 updateTriggerViewsVisibility()
             }
-        }
-    }
-
-    private fun configureFullscreenCutout(params: WindowManager.LayoutParams) {
-        if (Build.VERSION.SDK_INT >= 30) {
-            params.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-            params.fitInsetsTypes = 0
-        } else if (Build.VERSION.SDK_INT >= 28) {
-            params.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
     }
 
@@ -536,106 +613,94 @@ class OverlayService : Service() {
     // --- 全屏负一屏面板宿主窗口 ---
 
     private fun setupPanelOverlayWindow() {
-        panelWindowBinding.useDefaultManager(windowManager)
-        panelWindowBinding.bindParams(WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            configureFullscreenCutout(this)
-            @Suppress("DEPRECATION")
-            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
-        })
-
-        applyBlurSettings()
-
-        val composeView = ComposeView(this).apply {
-            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
-        }
-        var clearHostInputFocus: (() -> Unit)? = null
-
-        panelWindowBinding.bindView(PanelInputFrameLayout(this, object : PanelInputHost {
-            override val remoteOwnsInput: Boolean get() = windowCoordination.remoteOwnsInput
-            override val authorizationPending: Boolean get() = windowCoordination.authorizationPending
-            override fun hideHostIme(windowToken: IBinder?) {
-                (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager)
-                    .hideSoftInputFromWindow(windowToken, 0)
+        panelWindowBinding.configure(
+            defaultManager = windowManager,
+            initialParams = createPanelWindowInitialParams(),
+            factory = PanelWindowFactory { targetType, targetManager, freshParams ->
+                buildPanelWindowInstance(targetType, targetManager, freshParams)
             }
-            override fun clearComposeInputFocus() {
-                clearHostInputFocus?.invoke()
-            }
-            override fun handleModalBack(): Boolean = com.example.globalminusone.ui.panel.PanelModalBackHandler.handleBack()
-            override fun handleBrowserBack(): Boolean = com.example.globalminusone.ui.panel.PanelBrowserBackHandler.handleBack()
-            override fun handleFileBack(): Boolean = com.example.globalminusone.system.PanelFileBrowser.handleBack()
-            override fun handleEditorBack(): Boolean = com.example.globalminusone.ui.panel.PanelEditorBackHandler.handleBack()
-            override fun animateClosePanel() {
-                this@OverlayService.animateClosePanel()
-            }
-        }).apply {
-            isFocusable = true
-            isFocusableInTouchMode = true
-            visibility = View.GONE
-            addView(
-                composeView,
-                android.widget.FrameLayout.LayoutParams(
-                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT
-                )
-            )
-        })
-
-        lifecycleOwner = OverlayComposeLifecycleOwner()
-        lifecycleOwner.onCreate()
-        lifecycleOwner.attachToView(panelComposeView)
-        lifecycleOwner.attachToView(composeView)
-        lifecycleOwner.onStart()
-        lifecycleOwner.onResume()
-
-        composeView.setContent {
-                val focusManager = LocalFocusManager.current
-                DisposableEffect(focusManager) {
-                    clearHostInputFocus = { focusManager.clearFocus(force = true) }
-                    onDispose { clearHostInputFocus = null }
-                }
-                MinusOneOverlayContainer(
-                    repository = repository,
-                    systemController = systemController,
-                    widgetHostManager = widgetHostManager,
-                    openProgressProvider = { openProgressState.floatValue },
-                    activeSide = activeSideState.value,
-                    onOpenEmbeddedApplication = { target ->
-                        applicationWindows.open(target)
-                        animateClosePanel()
-                    },
-                    onBrowserHostInputAllowed = { allowed -> setBrowserInputOwner(!allowed) },
-                    onFloatingWorkspaceInputMode = { active -> setFloatingWorkspaceInputMode(active) },
-                    onRequestClose = { animateClosePanel() },
-                    onOpenMainApp = {
-                        openMainApp()
-                        animateClosePanel()
-                    },
-                    onRequestBindWidget = { pageId, containerId, beforeId ->
-                        animateClosePanel()
-                        openWidgetPicker(pageId, containerId, beforeId)
-                    }
-                )
-        }
-
+        )
+        applyBlurSettings(updateLayout = false)
         recoverPanelWindow()
     }
 
+    private fun buildPanelWindowInstance(
+        targetType: Int,
+        targetManager: WindowManager,
+        freshParams: WindowManager.LayoutParams
+    ): PanelWindowInstance {
+        val windowContext = if (targetType == WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) {
+            activeAccessibilityTarget?.takeIf { it.windowManager === targetManager }?.context ?: this
+        } else this
+        var clearHostInputFocus: (() -> Unit)? = null
+        val inputHost = object : PanelInputHost {
+            override val remoteOwnsInput: Boolean get() = windowCoordination.remoteOwnsInput
+            override val authorizationPending: Boolean get() = windowCoordination.authorizationPending
+            override fun hideHostIme(windowToken: IBinder?) {
+                (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(windowToken, 0)
+            }
+            override fun clearComposeInputFocus() { clearHostInputFocus?.invoke() }
+            override fun handleModalBack(): Boolean = com.example.globalminusone.ui.panel.PanelModalBackHandler.handleBack()
+            override fun handleBrowserBack(): Boolean = com.example.globalminusone.ui.panel.PanelBrowserBackHandler.handleBack()
+            override fun handleFileBack(): Boolean = com.example.globalminusone.system.file.PanelFileBrowser.handleBack()
+            override fun handleEditorBack(): Boolean = com.example.globalminusone.ui.panel.gesture.PanelEditorBackHandler.handleBack()
+            override fun animateClosePanel() = this@OverlayService.animateClosePanel()
+        }
+        return createPanelWindowInstance(windowContext, freshParams, inputHost) {
+            val focusManager = LocalFocusManager.current
+            DisposableEffect(focusManager) {
+                clearHostInputFocus = { focusManager.clearFocus(force = true) }
+                onDispose { clearHostInputFocus = null }
+            }
+            MinusOneOverlayContainer(
+                repository = repository,
+                systemController = systemController,
+                widgetHostManager = widgetHostManager,
+                openProgressProvider = { openProgressState.floatValue },
+                activeSide = activeSideState.value,
+                onOpenEmbeddedApplication = { target -> applicationWindows.open(target); animateClosePanel() },
+                onBrowserHostInputAllowed = { allowed -> setBrowserInputOwner(!allowed) },
+                onFloatingWorkspaceInputMode = { active -> setFloatingWorkspaceInputMode(active) },
+                onRequestClose = { animateClosePanel() },
+                onOpenMainApp = { openMainApp(); animateClosePanel() },
+                onRequestBindWidget = { pageId, containerId, beforeId, targetGridCell ->
+                    animateClosePanel(); openWidgetPicker(pageId, containerId, beforeId, targetGridCell)
+                }
+            )
+        }
+    }
+
+    private fun resetAccessibilityLayerFailures() {
+        panelWindowHost.resetAccessibilityFailure()
+        triggerSlots.values.forEach { it.resetAccessibilityFailure() }
+        suspensionBallSlot.resetAccessibilityFailure()
+    }
+
     private fun recoverPanelWindow() {
-        val accessibility = GlobalAccessibilityService.instance
-        panelWindowHost.recover(
-            highestOverlay = repository.state.value.advancedConfig.highestOverlayLevel,
-            accessibilityAvailable = accessibility != null,
-            resolveAccessibilityManager = { accessibility?.getSystemService(WINDOW_SERVICE) as? WindowManager }
+        val target = resolveAccessibilityWindowTarget(applicationInfo.theme)
+        activeAccessibilityTarget = target
+        try {
+            panelWindowHost.recover(
+                highestOverlay = repository.state.value.advancedConfig.highestOverlayLevel,
+                accessibilityAvailable = target != null,
+                resolveAccessibilityManager = { target?.windowManager }
+            )
+        } finally {
+            activeAccessibilityTarget = null
+        }
+        applyBlurSettings(updateLayout = false)
+        if (panelWindowBinding.hasView && panelComposeView.isAttachedToWindow) {
+            runCatching { panelWindowBinding.updateLayout() }
+            panelComposeView.requestLayout()
+            panelComposeView.invalidate()
+        }
+        publishOverlayLayerStatus()
+    }
+
+    private fun publishOverlayLayerStatus() {
+        if (!::repository.isInitialized) return
+        repository.updateOverlayLayerStatus(
+            collectOverlayLayerStatus(repository.state.value, panelWindowHost, triggerSlots, suspensionBallSlot)
         )
     }
 
@@ -709,6 +774,7 @@ class OverlayService : Service() {
         updateBlur: Boolean = true,
         forceLayoutUpdate: Boolean = false
     ) {
+        if (!panelWindowBinding.hasView) return
         val previousFlags = panelParams.flags
         val supportsBlur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
         val previousBlurRadius = if (supportsBlur) panelParams.blurBehindRadius else 0
@@ -764,22 +830,26 @@ class OverlayService : Service() {
     }
 
     private fun setExternalAuthorizationPending(pending: Boolean) {
-        if (!windowCoordination.transitionAuthorization(pending, panelParams.alpha)) return
+        val initialAlpha = if (panelWindowBinding.hasParams) panelParams.alpha else 1f
+        if (!windowCoordination.transitionAuthorization(pending, initialAlpha)) return
         // Detaching the panel during service teardown stops the Surface and calls
         // back here. Never recreate an auxiliary window during teardown.
         if (windowCoordination.destroying) return
         if (::applicationWindows.isInitialized) applicationWindows.setAuthorizationUiHidden(pending)
-        if (pending) {
-            // Keep the Surface alive while exposing the external permission UI.
-            // INVISIBLE/GONE would destroy it and cancel the pending request.
-            panelParams.alpha = 0f
-            panelParams.flags = panelParams.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-        } else {
-            panelParams.alpha = windowCoordination.authorizationAlpha
-            if (windowCoordination.canRestoreHostFocus(panelComposeView.visibility == View.VISIBLE, openProgressState.floatValue)) {
-                panelParams.flags = panelParams.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-                if (!windowCoordination.remoteOwnsInput) panelParams.flags = embeddedHostFocusFlags(panelParams.flags, remoteInput = false)
+        if (panelWindowBinding.hasParams) {
+            if (pending) {
+                panelParams.alpha = 0f
+                panelParams.flags = panelParams.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+            } else {
+                panelParams.alpha = windowCoordination.authorizationAlpha
+                if (panelWindowBinding.hasView && windowCoordination.canRestoreHostFocus(
+                        panelComposeView.visibility == View.VISIBLE, openProgressState.floatValue
+                    )
+                ) {
+                    panelParams.flags = panelParams.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+                    if (!windowCoordination.remoteOwnsInput) panelParams.flags = embeddedHostFocusFlags(panelParams.flags, remoteInput = false)
+                }
             }
         }
         // Even a small trigger outside the dialog can mark a permission touch as
@@ -787,6 +857,10 @@ class OverlayService : Service() {
         // Only the panel must retain its Surface; auxiliary windows may be GONE.
         updateTriggerViewsVisibility()
         updateEyeProtectionWindow()
+        if (::systemController.isInitialized) {
+            brightnessWindowHost?.apply(systemController.overlayBrightnessOverride.value)
+        }
+        if (!panelWindowBinding.hasView) return
         if (!pending && !windowCoordination.panelClosing && panelComposeView.visibility == View.VISIBLE) {
             syncPanelFocusAndBlur(forceLayoutUpdate = true)
         } else {
@@ -796,6 +870,8 @@ class OverlayService : Service() {
     }
 
     private fun ensurePanelGoneAndUnfocused() {
+        powerGuard?.onPanelExpandedChanged(false)
+        if (!panelWindowBinding.hasView) return
         val targetFlags = panelParams.flags or
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
@@ -803,8 +879,9 @@ class OverlayService : Service() {
         val flagsChanged = panelParams.flags != targetFlags
         panelParams.flags = targetFlags
         panelComposeView.visibility = View.GONE
+        val refreshChanged = applyPanelRefreshRateHint(panelParams, active = false, maxRefreshRate = 0f)
         val blurChanged = applyBlurSettings(updateLayout = false)
-        if (flagsChanged || wasVisible || blurChanged) {
+        if (flagsChanged || wasVisible || blurChanged || refreshChanged) {
             try {
                 panelWindowBinding.updateLayout()
             } catch (_: Exception) {}
@@ -814,6 +891,10 @@ class OverlayService : Service() {
     private fun preparePanelForDragging() {
         panelMotionController.cancel(resetVelocity = false)
         windowCoordination.beginOpening()
+        if (!panelRegistered || !panelWindowBinding.hasView || !panelComposeView.isAttachedToWindow) {
+            recoverPanelWindow()
+        }
+        if (!panelWindowBinding.hasView) return
         if (panelComposeView.visibility != View.VISIBLE) {
             panelComposeView.visibility = View.VISIBLE
         }
@@ -821,8 +902,9 @@ class OverlayService : Service() {
             else panelParams.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
         val flagsChanged = panelParams.flags != flags
         panelParams.flags = flags
+        val refreshChanged = applyPanelRefreshRateHint(panelParams, active = true, maxRefreshRate = resolveDisplayMaxRefreshRate(this))
         val blurChanged = applyBlurSettings(updateLayout = false)
-        if (flagsChanged || blurChanged) {
+        if (flagsChanged || blurChanged || refreshChanged) {
             try {
                 panelWindowBinding.updateLayout()
             } catch (_: Exception) {}
@@ -857,22 +939,23 @@ class OverlayService : Service() {
         panelMotionController.animateTo(
             target = 1f,
             initialVelocity = initialVelocity,
-            animationDurationMs = repository.state.value.themeConfig.animationDurationMs,
+            animationDurationMs = repository.state.value.themeConfig.resolvedPanelOpenCloseMs(),
             closing = false
         ) {
             syncPanelFocusAndBlur()
             repository.setPanelExpanded(true)
+            powerGuard?.onPanelExpandedChanged(true)
             updateTriggerViewsVisibility()
         }
     }
 
     fun animateClosePanel(initialVelocity: Float = 0f) {
         windowCoordination.beginClosing()
-        panelParams.flags = panelParams.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-        applyBlurSettings(updateLayout = false)
-        try {
-            panelWindowBinding.updateLayout()
-        } catch (_: Exception) {}
+        if (panelWindowBinding.hasParams) {
+            panelParams.flags = panelParams.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+            applyBlurSettings(updateLayout = false)
+            runCatching { panelWindowBinding.updateLayout() }
+        }
 
         val finishClose = {
             ensurePanelGoneAndUnfocused()
@@ -888,7 +971,7 @@ class OverlayService : Service() {
         panelMotionController.animateTo(
             target = 0f,
             initialVelocity = initialVelocity,
-            animationDurationMs = repository.state.value.themeConfig.animationDurationMs,
+            animationDurationMs = repository.state.value.themeConfig.resolvedPanelOpenCloseMs(),
             closing = true,
             onEnd = finishClose
         )
@@ -1058,13 +1141,13 @@ class OverlayService : Service() {
         underlyingScrollJob = null
 
         val accService = GlobalAccessibilityService.instance
-        val rootAlreadyGranted = com.example.globalminusone.system.UserRootSession.authorizedEpoch() != null
+        val rootAlreadyGranted = com.example.globalminusone.system.privilege.UserRootSession.authorizedEpoch() != null
         val adv = repository.state.value.advancedConfig
         val preferPrivileged = adv.screenAssistantConfig.usePrivilegedCapture || adv.rootModeEnabled
         val canTryRoot = rootAlreadyGranted || (
             preferPrivileged &&
-                com.example.globalminusone.system.UserRootSession.status.value ==
-                com.example.globalminusone.system.RootStatus.NotRequested
+                com.example.globalminusone.system.privilege.UserRootSession.status.value ==
+                com.example.globalminusone.system.privilege.RootStatus.NotRequested
             )
         if (accService == null && !canTryRoot) {
             pauseScreenAssistantForManualBrowse(
@@ -1090,13 +1173,13 @@ class OverlayService : Service() {
                 scrolled = withTimeoutOrNull(950L) { gate.await() } == true
             }
             if (!scrolled && canTryRoot) {
-                val rootReady = if (com.example.globalminusone.system.UserRootSession.authorizedEpoch() != null) {
+                val rootReady = if (com.example.globalminusone.system.privilege.UserRootSession.authorizedEpoch() != null) {
                     true
                 } else {
-                    runCatching { com.example.globalminusone.system.UserRootSession.requestAuthorization().succeeded }.getOrDefault(false)
+                    runCatching { com.example.globalminusone.system.privilege.UserRootSession.requestAuthorization().succeeded }.getOrDefault(false)
                 }
                 if (rootReady) {
-                    scrolled = com.example.globalminusone.system.UserRootSession.injectTouchSwipe(
+                    scrolled = com.example.globalminusone.system.privilege.UserRootSession.injectTouchSwipe(
                         x0 = startX.roundToInt(),
                         y0 = startY.roundToInt(),
                         x1 = endX.roundToInt(),
@@ -1197,12 +1280,13 @@ class OverlayService : Service() {
         )
     }
 
-    private fun openWidgetPicker(pageId: String, containerId: String?, beforeId: String?) {
+    private fun openWidgetPicker(pageId: String, containerId: String?, beforeId: String?, targetGridCell: Pair<Int, Int>? = null) {
         try {
             val intent = Intent(this, WidgetPickerActivity::class.java).apply {
                 putExtra("target_page_id", pageId)
                 putExtra("container_id", containerId)
                 putExtra("before_component_id", beforeId)
+                targetGridCell?.let { putExtra("target_grid_col", it.first); putExtra("target_grid_row", it.second) }
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             startActivity(intent)
@@ -1264,33 +1348,34 @@ class OverlayService : Service() {
     }
 
     private fun ensureOrUpdateEdgeTrigger(
-        existing: EdgeTriggerView?,
         position: TriggerPosition,
         screenWidth: Int,
         screenHeight: Int,
-        config: TriggerConfig
-    ): EdgeTriggerView? {
+        config: TriggerConfig,
+        accessibilityTarget: AccessibilityWindowTarget?
+    ) {
+        val slot = triggerSlots[position] ?: return
         val params = getTriggerLayoutParams(position, screenWidth, screenHeight, config)
-        return ensureOverlayWindowRegistered(
-            existing = existing,
-            create = { EdgeTriggerView(this, position, edgeTriggerHost).apply {
-                if (windowCoordination.authorizationPending) visibility = View.GONE
-            } },
-            update = { windowManager.updateViewLayout(it, params); it.invalidate() },
-            remove = { it.updateGestureExclusion(false); windowManager.removeViewImmediate(it) },
-            add = { windowManager.addView(it, params) },
+        slot.sync(
+            highestOverlay = repository.state.value.advancedConfig.highestOverlayLevel,
+            accessibilityTarget = accessibilityTarget,
+            params = params,
+            createView = { ctx ->
+                EdgeTriggerView(ctx, position, edgeTriggerHost).apply {
+                    if (windowCoordination.authorizationPending) visibility = View.GONE
+                }
+            },
+            onAfterUpdate = { it.invalidate() },
             onFailure = { Log.e(TAG, "Cannot register EdgeTriggerView for $position", it) }
         )
     }
 
-    private fun removeEdgeTrigger(view: EdgeTriggerView?): EdgeTriggerView? {
-        view?.let {
-            it.updateGestureExclusion(false)
-            try {
-                windowManager.removeView(it)
-            } catch (_: Exception) {}
-        }
-        return null
+    private fun removeEdgeTrigger(position: TriggerPosition) {
+        triggerSlots[position]?.remove()
+    }
+
+    private fun removeAllEdgeTriggers() {
+        triggerSlots.values.forEach { it.remove() }
     }
 
     private fun updateTriggerViews() {
@@ -1298,59 +1383,37 @@ class OverlayService : Service() {
         val (screenWidth, screenHeight) = getScreenSize()
 
         if (config.triggerWay == TriggerWay.NONE || config.triggerWay == TriggerWay.SUSPENSION_BALL || !config.serviceEnabled) {
-            leftTriggerView = removeEdgeTrigger(leftTriggerView)
-            rightTriggerView = removeEdgeTrigger(rightTriggerView)
-            topTriggerView = removeEdgeTrigger(topTriggerView)
-            bottomTriggerView = removeEdgeTrigger(bottomTriggerView)
+            removeAllEdgeTriggers()
             updateTriggerViewsVisibility()
+            publishOverlayLayerStatus()
             return
         }
 
         // SLIDE 或 SECOND_SLIDE
-        when (config.triggerPosition) {
-            TriggerPosition.LEFT -> {
-                leftTriggerView = ensureOrUpdateEdgeTrigger(leftTriggerView, TriggerPosition.LEFT, screenWidth, screenHeight, config)
-                rightTriggerView = removeEdgeTrigger(rightTriggerView)
-                topTriggerView = removeEdgeTrigger(topTriggerView)
-                bottomTriggerView = removeEdgeTrigger(bottomTriggerView)
-            }
-            TriggerPosition.RIGHT -> {
-                rightTriggerView = ensureOrUpdateEdgeTrigger(rightTriggerView, TriggerPosition.RIGHT, screenWidth, screenHeight, config)
-                leftTriggerView = removeEdgeTrigger(leftTriggerView)
-                topTriggerView = removeEdgeTrigger(topTriggerView)
-                bottomTriggerView = removeEdgeTrigger(bottomTriggerView)
-            }
-            TriggerPosition.BOTH -> {
-                leftTriggerView = ensureOrUpdateEdgeTrigger(leftTriggerView, TriggerPosition.LEFT, screenWidth, screenHeight, config)
-                rightTriggerView = ensureOrUpdateEdgeTrigger(rightTriggerView, TriggerPosition.RIGHT, screenWidth, screenHeight, config)
-                topTriggerView = removeEdgeTrigger(topTriggerView)
-                bottomTriggerView = removeEdgeTrigger(bottomTriggerView)
-            }
-            TriggerPosition.TOP -> {
-                topTriggerView = ensureOrUpdateEdgeTrigger(topTriggerView, TriggerPosition.TOP, screenWidth, screenHeight, config)
-                leftTriggerView = removeEdgeTrigger(leftTriggerView)
-                rightTriggerView = removeEdgeTrigger(rightTriggerView)
-                bottomTriggerView = removeEdgeTrigger(bottomTriggerView)
-            }
-            TriggerPosition.BOTTOM -> {
-                bottomTriggerView = ensureOrUpdateEdgeTrigger(bottomTriggerView, TriggerPosition.BOTTOM, screenWidth, screenHeight, config)
-                leftTriggerView = removeEdgeTrigger(leftTriggerView)
-                rightTriggerView = removeEdgeTrigger(rightTriggerView)
-                topTriggerView = removeEdgeTrigger(topTriggerView)
-            }
+        val accTarget = if (repository.state.value.advancedConfig.highestOverlayLevel) {
+            resolveAccessibilityWindowTarget(applicationInfo.theme)
+        } else null
+        val activePositions = if (config.triggerPosition == TriggerPosition.BOTH) {
+            setOf(TriggerPosition.LEFT, TriggerPosition.RIGHT)
+        } else {
+            setOf(config.triggerPosition)
+        }
+        triggerSlots.keys.forEach { pos ->
+            if (pos in activePositions) ensureOrUpdateEdgeTrigger(pos, screenWidth, screenHeight, config, accTarget)
+            else removeEdgeTrigger(pos)
         }
 
         updateTriggerViewsVisibility()
+        publishOverlayLayerStatus()
     }
 
     // --- 悬浮球视图 (SuspensionBallView) 管理 ---
 
+    private fun removeSuspensionBallWindow() = suspensionBallSlot.remove()
+
     private fun recreateSuspensionBallAfterMouseFailure() {
-        if (windowCoordination.destroying) return
-        val previous = suspensionBallView ?: return
-        suspensionBallView = null
-        previous.cleanup()
-        runCatching { windowManager.removeViewImmediate(previous) }
+        if (windowCoordination.destroying || suspensionBallSlot.view == null) return
+        removeSuspensionBallWindow()
         updateSuspensionBallView()
         publishRunningState()
     }
@@ -1358,13 +1421,8 @@ class OverlayService : Service() {
     private fun updateSuspensionBallView() {
         val config = repository.state.value.triggerConfig
         if (config.triggerWay != TriggerWay.SUSPENSION_BALL || !config.serviceEnabled) {
-            suspensionBallView?.let {
-                it.cleanup()
-                try {
-                    windowManager.removeView(it)
-                } catch (_: Exception) {}
-                suspensionBallView = null
-            }
+            removeSuspensionBallWindow()
+            publishOverlayLayerStatus()
             return
         }
 
@@ -1392,20 +1450,23 @@ class OverlayService : Service() {
 
         accessibilityMouse?.preserveClickFlags(params)
         val previous = suspensionBallView
-        suspensionBallView = ensureOverlayWindowRegistered(
-            existing = previous,
-            create = { SuspensionBallView(this, suspensionBallHost).apply { visibility = View.GONE } },
-            update = { windowManager.updateViewLayout(it, params) },
-            remove = { it.cleanup(); windowManager.removeViewImmediate(it) },
-            add = { windowManager.addView(it, params) },
+        val accTarget = if (repository.state.value.advancedConfig.highestOverlayLevel) {
+            resolveAccessibilityWindowTarget(applicationInfo.theme)
+        } else null
+        val active = suspensionBallSlot.sync(
+            highestOverlay = repository.state.value.advancedConfig.highestOverlayLevel,
+            accessibilityTarget = accTarget,
+            params = params,
+            createView = { ctx -> SuspensionBallView(ctx, suspensionBallHost).apply { visibility = View.GONE } },
             onFailure = { Log.e(TAG, "Cannot register suspension ball window", it) }
         )
-        suspensionBallView?.let {
+        active?.let {
             it.updateBreatheMode(sbConfig.breatheMode)
             it.invalidate()
             if (it !== previous) it.scheduleIdleFade()
         }
         updateTriggerViewsVisibility()
+        publishOverlayLayerStatus()
     }
 
     private fun updateTriggerViewsVisibility() {
@@ -1472,8 +1533,11 @@ class OverlayService : Service() {
             callbackInsets: WindowInsetsCompat?
         ): WindowManager.LayoutParams =
             this@OverlayService.getTriggerLayoutParams(position, screenWidth, screenHeight, config, callbackInsets)
-        override fun updateTriggerLayout(view: View, params: WindowManager.LayoutParams) =
-            windowManager.updateViewLayout(view, params)
+        override fun updateTriggerLayout(view: View, params: WindowManager.LayoutParams) {
+            val edgeView = view as? EdgeTriggerView
+            val slot = edgeView?.let { ev -> triggerSlots.values.firstOrNull { it.view === ev } }
+            if (slot != null) slot.updateLayout(view, params) else windowManager.updateViewLayout(view, params)
+        }
     }
 
     private val suspensionBallHost = object : SuspensionBallHost {
@@ -1500,7 +1564,7 @@ class OverlayService : Service() {
             systemController.executeGestureAction(action, onOpenPanelSide)
         override fun animateOpenPanel(side: TriggerSide) = this@OverlayService.animateOpenPanel(side)
         override fun updateBallLayout(view: View, params: WindowManager.LayoutParams) =
-            windowManager.updateViewLayout(view, params)
+            suspensionBallSlot.updateLayout(view, params)
     }
 
     // --- 前台服务常驻通知 ---

@@ -7,6 +7,28 @@ import org.junit.Assert.*
 import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.policy.ContainerActionGeometry
+import com.example.globalminusone.data.policy.ContainerIconVerticalSpacing
+import com.example.globalminusone.data.ContainerLayoutType
+import com.example.globalminusone.data.GlobalMinusOneState
+import com.example.globalminusone.data.MAX_GRID_GAP_DP
+import com.example.globalminusone.data.MIN_GRID_GAP_DP
+import com.example.globalminusone.data.MIN_ICON_LABEL_GAP_DP
+import com.example.globalminusone.data.PageConfig
+import com.example.globalminusone.data.QuickActionItem
+import com.example.globalminusone.data.ROW_GAP_INHERIT
+import com.example.globalminusone.data.policy.componentDisplayHeightDp
+import com.example.globalminusone.data.policy.containerActionGeometry
+import com.example.globalminusone.data.policy.containerActionGridGeometry
+import com.example.globalminusone.data.policy.containerGridChildBounds
+import com.example.globalminusone.data.policy.containerIconSizeDp
+import com.example.globalminusone.data.policy.containerIconVerticalSpacing
+import com.example.globalminusone.data.policy.containerRowGapDp
+import com.example.globalminusone.data.policy.legacyContainerActionGridHeightDp
+import com.example.globalminusone.data.policy.legacyContainerActionTileHeightDp
+import com.example.globalminusone.data.policy.measureFreeContainerChildren
 
 class ContainerVerticalSpacingTest {
     private val icons = List(6) { ComponentItem(id = "app-$it", type = ComponentType.APP_ICON,

@@ -1,7 +1,7 @@
 package com.example.globalminusone.regression.v2436
 
-import com.example.globalminusone.data.cardImageTargetSize
-import com.example.globalminusone.data.readCardImageBytes
+import com.example.globalminusone.data.policy.cardImageTargetSize
+import com.example.globalminusone.data.policy.readCardImageBytes
 import org.junit.Assert.*
 import org.junit.Test
 import java.io.ByteArrayInputStream

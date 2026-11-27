@@ -1,10 +1,14 @@
 package com.example.globalminusone.regression.v2412
 
 import com.example.globalminusone.data.ThemeConfig
-import com.example.globalminusone.data.panelBounds
+import com.example.globalminusone.data.policy.panelBounds
 import com.example.globalminusone.ui.panel.*
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.ui.panel.editor.EditToolsPosition
+import com.example.globalminusone.ui.panel.editor.PanelGeometryGesture
+import com.example.globalminusone.ui.panel.editor.PanelGeometryHandle
+import com.example.globalminusone.ui.panel.editor.clampEditToolsPosition
 
 class PanelGeometryGestureTest {
     private val initial = ThemeConfig(panelWidthPercent = 60, panelHeightPercent = 50,

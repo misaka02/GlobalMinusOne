@@ -1,6 +1,6 @@
 package com.example.globalminusone
 
-import com.example.globalminusone.service.ensureOverlayWindowRegistered
+import com.example.globalminusone.service.overlay.ensureOverlayWindowRegistered
 import org.junit.Assert.*
 import org.junit.Test
 

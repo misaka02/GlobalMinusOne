@@ -3,6 +3,11 @@ package com.example.globalminusone.regression.v2436
 import com.example.globalminusone.ui.panel.*
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.ui.panel.layout.LinearCardSpan
+import com.example.globalminusone.ui.panel.layout.LinearViewportAnchor
+import com.example.globalminusone.ui.panel.layout.PageViewportStore
+import com.example.globalminusone.ui.panel.layout.anchorAtLinearScroll
+import com.example.globalminusone.ui.panel.layout.lazyPositionForAnchor
 
 class R7DiscardViewportTest {
     @Test fun deletingFirstAppAnchorsShortcutButDiscardRestoresAppViewportCheckpoint() {

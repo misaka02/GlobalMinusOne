@@ -3,6 +3,14 @@ package com.example.globalminusone.data
 import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
 import java.util.UUID
+import com.example.globalminusone.data.policy.DefaultPresets
+import com.example.globalminusone.data.operations.SubPanelConfig
+import com.example.globalminusone.data.operations.SubPanelTemplate
+import com.example.globalminusone.data.policy.containerIconSizeDp
+import com.example.globalminusone.data.policy.containerPopupHeightDp
+import com.example.globalminusone.data.policy.containerPopupWidthDp
+import com.example.globalminusone.data.policy.containerRowGapDp
+import com.example.globalminusone.data.policy.PanelOpenPageMode
 
 /** Sentinel meaning row gap inherits the horizontal item gap. */
 const val ROW_GAP_INHERIT = -999
@@ -23,9 +31,7 @@ data class NotificationPreferencesConfig(
     val allowedPackages: Set<String> = emptySet()
 )
 
-/**
- * 触发方式
- */
+/** 触发方式 */
 @Serializable
 enum class TriggerWay(val label: String) {
     SLIDE("直接滑动"),
@@ -35,9 +41,7 @@ enum class TriggerWay(val label: String) {
     NONE("无")
 }
 
-/**
- * 触发位置
- */
+/** 触发位置 */
 @Serializable
 enum class TriggerPosition(val label: String) {
     LEFT("左侧"),
@@ -233,9 +237,7 @@ enum class PageTransition(val label: String) {
     IN_CUBE("内魔方")
 }
 
-/**
- * 主题外观配置模型
- */
+/** 主题外观配置模型 */
 @Immutable
 @Serializable
 data class ThemeConfig(
@@ -250,6 +252,7 @@ data class ThemeConfig(
     val maskAlphaPercent: Int = 20,
     val pageTransition: PageTransition = PageTransition.TRANSLATION,
     val animationDurationMs: Int = 260,
+    val moduleAnimations: ModuleAnimationConfig = ModuleAnimationConfig(),
     val coverStatusBar: Boolean = true,
     val backgroundBlurRadius: Int = 25,
     val cardBackground: Boolean = true,
@@ -397,9 +400,7 @@ data class ScreenAssistantConfig(
     val fabYFraction: Float = 0.62f
 )
 
-/**
- * 高级设置与扩展功能配置模型
- */
+/** 高级设置与扩展功能配置模型 */
 @Immutable
 @Serializable
 data class AdvancedConfig(
@@ -421,12 +422,12 @@ data class AdvancedConfig(
     val eyeProtectionColorHex: Long = 0x26FFB100,
     val autoCopyVerificationCode: Boolean = false,
     val scenarioModes: List<ScenarioModeItem> = emptyList(),
-    val screenAssistantConfig: ScreenAssistantConfig = ScreenAssistantConfig()
+    val screenAssistantConfig: ScreenAssistantConfig = ScreenAssistantConfig(),
+    val panelOpenPageMode: PanelOpenPageMode = PanelOpenPageMode.LAST_VISITED,
+    val lockedOpenPageId: String = ""
 )
 
-/**
- * 页面布局类型（0: 线性布局，1: 自由布局，2: 网格布局）
- */
+/** 页面布局类型（0: 线性布局，1: 自由布局，2: 网格布局） */
 @Serializable
 enum class PageLayoutType(val code: Int, val label: String) {
     LINEAR(0, "线性布局"),
@@ -434,9 +435,7 @@ enum class PageLayoutType(val code: Int, val label: String) {
     GRID(2, "网格布局")
 }
 
-/**
- * 组件添加分类
- */
+/** 组件添加分类 */
 @Serializable
 enum class ComponentCategory(val label: String) {
     SWITCH("通知栏开关"),
@@ -539,7 +538,8 @@ enum class ComponentType(
     FILE_SHORTCUT(63, "文件", ComponentCategory.FILES, 32, 7),
     ACTION_REGION_SCREENSHOT(65, "区域截屏", ComponentCategory.SYSTEM_ACTION, 8, 6),
     ACTION_SCREEN_ASSISTANT(66, "全局识屏", ComponentCategory.SYSTEM_ACTION, 8, 6),
-    ACTION_BREENO_TOUCH(67, "小布识屏", ComponentCategory.SYSTEM_ACTION, 8, 6);
+    ACTION_BREENO_TOUCH(67, "小布识屏", ComponentCategory.SYSTEM_ACTION, 8, 6),
+    SUB_PANEL_ENTRY(69, "子面板", ComponentCategory.CONTAINER, 8, 8);
 
     companion object {
         fun fromCnum(cnum: Int): ComponentType? = values().firstOrNull { it.cnum == cnum }
@@ -648,7 +648,8 @@ data class ComponentItem(
     val autoHeight: Boolean = type in setOf(ComponentType.CONTAINER_BOX, ComponentType.OPERATION_BAR,
         ComponentType.APP_ICON, ComponentType.CUSTOM_SHORTCUT, ComponentType.STATIC_SHORTCUT),
     // Actual rendered icon dp. Zero preserves legacy cell-size-derived appearance.
-    val containerIconSizeDp: Int = 0
+    val containerIconSizeDp: Int = 0,
+    val subPanelId: String = ""
 )
 
 /**
@@ -672,7 +673,12 @@ data class PageConfig(
     val gridColumnCount: Int = 0,
     val gridIconSizeDp: Int = 0,
     // Panels reading order must not be changed by backfilling holes ahead of earlier cards.
-    val gridFillGaps: Boolean = true
+    val gridFillGaps: Boolean = true,
+    // Manual grid row count (0 = automatic) & adaptive shrink/grow row toggle.
+    val gridRowCount: Int = 0,
+    val gridAutoRows: Boolean = true,
+    // Empty = belongs to main panel; non-empty = belongs to SubPanelConfig.id.
+    val subPanelId: String = ""
 )
 
 /**
@@ -796,8 +802,9 @@ data class GlobalMinusOneState(
     val clipboardHistory: List<ClipboardRecord> = DefaultPresets.defaultClipboard(),
     val fileBrowserConfig: FileBrowserConfig = FileBrowserConfig(),
     val boundWidgets: List<BoundWidgetInfo> = emptyList(),
+    val subPanels: List<SubPanelConfig> = emptyList(),
+    val subPanelLibrary: List<SubPanelTemplate> = emptyList(),
     val noteText: String = "在任意界面从屏幕边缘向内滑动即可呼出负一屏。",
-
     // 兼容旧版视图字段
     val appearanceConfig: AppearanceConfig = AppearanceConfig(),
     val cards: List<CardConfig> = DefaultPresets.defaultCards(),

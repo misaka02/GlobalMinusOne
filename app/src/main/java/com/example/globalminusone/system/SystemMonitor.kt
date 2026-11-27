@@ -7,6 +7,7 @@ import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Environment
 import android.os.StatFs
+import android.os.SystemClock
 import androidx.compose.runtime.Immutable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,8 +41,13 @@ data class HardwareStatus(
 
 object SystemMonitor {
 
+    private const val SAMPLE_INTERVAL_MS = 3_000L
+    private const val ROM_CACHE_TTL_MS = 30_000L
+
     private val samplingScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var sharedStatus: StateFlow<HardwareStatus>? = null
+    @Volatile private var cachedRomAtMs = -1L
+    @Volatile private var cachedRomStats = Triple(0f, 0f, 0)
 
     /** One IO sampler for all visible cards; no system reads while there are no collectors. */
     fun observe(context: Context): StateFlow<HardwareStatus> {
@@ -51,7 +57,7 @@ object SystemMonitor {
                 flow {
                     while (currentCoroutineContext().isActive) {
                         emit(snapshot(appContext))
-                        delay(2_000L)
+                        delay(SAMPLE_INTERVAL_MS)
                     }
                 }.stateIn(
                     scope = samplingScope,
@@ -85,27 +91,31 @@ object SystemMonitor {
             }
         } catch (_: Exception) {}
 
-        // 2. 存储空间 (ROM) 监控
-        var romUsedGb = 0f
-        var romTotalGb = 0f
-        var romPercent = 0
-        try {
-            val statFs = StatFs(Environment.getDataDirectory().path)
-            val blockSize = statFs.blockSizeLong
-            val totalBlocks = statFs.blockCountLong
-            val availableBlocks = statFs.availableBlocksLong
-
-            val totalRomBytes = blockSize * totalBlocks
-            val freeRomBytes = blockSize * availableBlocks
-            val usedRomBytes = (totalRomBytes - freeRomBytes).coerceAtLeast(0L)
-
-            val bytesInGb = 1024.0 * 1024.0 * 1024.0
-            romTotalGb = ((totalRomBytes.toDouble() / bytesInGb * 10.0).roundToInt() / 10.0).toFloat()
-            romUsedGb = ((usedRomBytes.toDouble() / bytesInGb * 10.0).roundToInt() / 10.0).toFloat()
-            romPercent = if (totalRomBytes > 0L) {
-                ((usedRomBytes.toDouble() / totalRomBytes.toDouble()) * 100.0).roundToInt().coerceIn(0, 100)
-            } else 0
-        } catch (_: Exception) {}
+        // 2. 存储空间 (ROM) 监控（30 秒节流缓存，避免每帧重复 StatFs）
+        val nowMs = SystemClock.elapsedRealtime()
+        val (romUsedGb, romTotalGb, romPercent) = if (cachedRomAtMs >= 0L && nowMs - cachedRomAtMs < ROM_CACHE_TTL_MS) {
+            cachedRomStats
+        } else {
+            var nextUsed = 0f
+            var nextTotal = 0f
+            var nextPct = 0
+            try {
+                val statFs = StatFs(Environment.getDataDirectory().path)
+                val totalRomBytes = statFs.totalBytes
+                val freeRomBytes = statFs.availableBytes
+                val usedRomBytes = (totalRomBytes - freeRomBytes).coerceAtLeast(0L)
+                val bytesInGb = 1024.0 * 1024.0 * 1024.0
+                nextTotal = ((totalRomBytes.toDouble() / bytesInGb * 10.0).roundToInt() / 10.0).toFloat()
+                nextUsed = ((usedRomBytes.toDouble() / bytesInGb * 10.0).roundToInt() / 10.0).toFloat()
+                nextPct = if (totalRomBytes > 0L) {
+                    ((usedRomBytes.toDouble() / totalRomBytes.toDouble()) * 100.0).roundToInt().coerceIn(0, 100)
+                } else 0
+            } catch (_: Exception) {}
+            Triple(nextUsed, nextTotal, nextPct).also {
+                cachedRomStats = it
+                cachedRomAtMs = nowMs
+            }
+        }
 
         // 3. 电池与温度状态监控 (通过系统粘性广播实时读取)
         var batteryLevel = 0
@@ -127,7 +137,7 @@ object SystemMonitor {
 
                 val rawTemp = batteryIntent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0)
                 // 系统温度单位为 0.1 摄氏度
-                batteryTempCelsius = ((rawTemp / 10.0) * 10.0).roundToInt() / 10.0f
+                batteryTempCelsius = rawTemp / 10.0f
 
                 batteryVoltageMv = batteryIntent.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0)
             }

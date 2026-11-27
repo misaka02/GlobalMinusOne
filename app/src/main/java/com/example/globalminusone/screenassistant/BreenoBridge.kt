@@ -9,10 +9,10 @@ import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.provider.Settings
 import android.view.accessibility.AccessibilityNodeInfo
-import com.example.globalminusone.system.RootCommandResult
-import com.example.globalminusone.system.RootStatus
+import com.example.globalminusone.system.privilege.RootCommandResult
+import com.example.globalminusone.system.privilege.RootStatus
 import com.example.globalminusone.system.SystemAccessibilityActions
-import com.example.globalminusone.system.UserRootSession
+import com.example.globalminusone.system.privilege.UserRootSession
 import com.example.globalminusone.system.findSystemAccessibilityActions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay

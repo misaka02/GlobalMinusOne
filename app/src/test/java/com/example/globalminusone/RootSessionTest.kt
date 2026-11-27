@@ -7,6 +7,20 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.system.file.BrowserEntry
+import com.example.globalminusone.system.privilege.PrivilegeAction
+import com.example.globalminusone.system.privilege.RootExecutor
+import com.example.globalminusone.system.file.RootFileIo
+import com.example.globalminusone.system.privilege.RootProcessOutcome
+import com.example.globalminusone.system.privilege.RootProcessRequest
+import com.example.globalminusone.system.privilege.RootReadRequest
+import com.example.globalminusone.system.privilege.RootStatus
+import com.example.globalminusone.system.privilege.UserRootSession
+import com.example.globalminusone.system.file.decodeRootListing
+import com.example.globalminusone.system.file.entry
+import com.example.globalminusone.system.file.location
+import com.example.globalminusone.system.privilege.normalizeRootPath
+import com.example.globalminusone.system.privilege.rootShellPath
 
 class RootSessionTest {
     @After fun reset() { UserRootSession.resetForTests() }

@@ -5,6 +5,22 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.system.file.MAX_EDIT_TEXT_BYTES
+import com.example.globalminusone.system.privilege.RootChangeApproval
+import com.example.globalminusone.system.privilege.RootExecutor
+import com.example.globalminusone.system.file.RootFileIo
+import com.example.globalminusone.system.privilege.RootFileSnapshot
+import com.example.globalminusone.system.file.RootMutationRequest
+import com.example.globalminusone.system.privilege.RootProcessOutcome
+import com.example.globalminusone.system.privilege.RootStatus
+import com.example.globalminusone.system.privilege.RootWritePolicy
+import com.example.globalminusone.system.privilege.UserRootSession
+import com.example.globalminusone.system.privilege.boundedRootLine
+import com.example.globalminusone.system.file.location
+import com.example.globalminusone.system.file.rootMutationCommand
+import com.example.globalminusone.system.privilege.rootTaskScript
+import com.example.globalminusone.system.privilege.rootTextDifference
+import com.example.globalminusone.system.file.textFingerprint
 
 class RootWriteSafetyTest {
     @After fun reset() { UserRootSession.resetForTests() }

@@ -5,4 +5,3 @@ enum class ScreenAssistantMode {
     TRANSLATE_INPLACE,
     SUB_IMAGES
 }
-

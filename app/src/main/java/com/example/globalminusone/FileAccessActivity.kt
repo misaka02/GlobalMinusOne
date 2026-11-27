@@ -26,7 +26,7 @@ import com.example.globalminusone.data.MinusOneRepository
 import com.example.globalminusone.data.PendingDocumentAccess
 import com.example.globalminusone.data.awaitFilePickerPanelRelease
 import com.example.globalminusone.service.OverlayService
-import com.example.globalminusone.system.PanelFileBrowser
+import com.example.globalminusone.system.file.PanelFileBrowser
 import com.example.globalminusone.theme.GlobalMinusOneTheme
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +41,10 @@ class FileAccessActivity : ComponentActivity() {
     private var pendingDocument: PendingDocumentAccess? = null
     private var documentProcessing = false
 
+    private fun releasePersistedQuietly(uri: Uri, flags: Int) {
+        if (flags != 0) runCatching { contentResolver.releasePersistableUriPermission(uri, flags) }
+    }
+
     private val treePicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val data = result.data
         val uri = data?.data
@@ -48,22 +52,27 @@ class FileAccessActivity : ComponentActivity() {
             finishAccess("已取消添加目录")
         } else {
             lifecycleScope.launch {
+                val alreadyPersisted = contentResolver.persistedUriPermissions.any { it.uri == uri }
+                var persistedNow = false
+                var grantedFlags = 0
                 try {
                     val root = withContext(Dispatchers.IO) {
                         check(uri.scheme == "content" && DocumentsContract.isTreeUri(uri)) { "系统返回的目录无效" }
-                        check((data?.flags ?: 0) and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0) { "未获得目录读取权限" }
-                        check((data?.flags ?: 0) and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0) { "系统未提供持续授权，请重新选择目录" }
-                        val requestedWrite = intent.action == ACTION_ADD_WRITABLE_DIRECTORY
-                        val returned = (data?.flags ?: 0) and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-                        val granted = Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                            (if (requestedWrite) returned and Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
-                        contentResolver.takePersistableUriPermission(uri, granted)
+                        val flags = data?.flags ?: 0
+                        check(flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0) { "未获得目录读取权限" }
+                        check(flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0) { "系统未提供持续授权，请重新选择目录" }
                         val document = DocumentsContract.buildDocumentUriUsingTree(uri, DocumentsContract.getTreeDocumentId(uri))
                         val columns = arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE)
                         val title = contentResolver.query(document, columns, null, null, null)?.use { cursor ->
                             check(cursor.moveToFirst() && cursor.getString(1) == DocumentsContract.Document.MIME_TYPE_DIR) { "无法读取选择的目录" }
                             cursor.getString(0)?.takeIf { it.isNotBlank() } ?: "已授权目录"
                         } ?: error("无法读取选择的目录")
+                        val requestedWrite = intent.action == ACTION_ADD_WRITABLE_DIRECTORY
+                        val returned = flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                        grantedFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            (if (requestedWrite) returned and Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
+                        contentResolver.takePersistableUriPermission(uri, grantedFlags)
+                        persistedNow = true
                         FileBrowserRoot(uri.toString(), title)
                     }
                     val replace = intent.getStringExtra(EXTRA_REPLACE_URI)
@@ -71,14 +80,26 @@ class FileAccessActivity : ComponentActivity() {
                         config.copy(roots = com.example.globalminusone.data.mergeGrantedFileRoot(config.roots, root, replace))
                     }
                     if (!accepted) {
+                        if (persistedNow && !alreadyPersisted) releasePersistedQuietly(uri, grantedFlags)
                         finishAccess("目录配置未保存，请重试；原有目录配置已保留")
                         return@launch
+                    }
+                    if (!replace.isNullOrBlank() && replace != root.uri &&
+                        repository.state.value.fileBrowserConfig.roots.none { it.uri == replace }
+                    ) {
+                        val heldFlags = contentResolver.persistedUriPermissions.firstOrNull { it.uri.toString() == replace }?.let { perm ->
+                            (if (perm.isReadPermission) Intent.FLAG_GRANT_READ_URI_PERMISSION else 0) or
+                                (if (perm.isWritePermission) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
+                        } ?: (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                        releasePersistedQuietly(Uri.parse(replace), heldFlags)
                     }
                     val writable = contentResolver.persistedUriPermissions.any { it.uri.toString() == root.uri && it.isWritePermission }
                     finishAccess("已添加${if (writable) "可管理" else "只读"}目录：${root.title}")
                 } catch (e: CancellationException) {
+                    if (persistedNow && !alreadyPersisted) releasePersistedQuietly(uri, grantedFlags)
                     throw e
                 } catch (e: Exception) {
+                    if (persistedNow && !alreadyPersisted) releasePersistedQuietly(uri, grantedFlags)
                     finishAccess("目录授权失败：${e.message ?: "请重新选择目录"}")
                 }
             }
@@ -101,47 +122,71 @@ class FileAccessActivity : ComponentActivity() {
         if (completed || documentProcessing) return
         documentProcessing = true
         lifecycleScope.launch {
+            val uri = Uri.parse(selection.uri)
+            val alreadyPersisted = contentResolver.persistedUriPermissions.any { it.uri == uri }
+            var persistedNow = false
+            var grantFlags = 0
             try {
-                val uri = Uri.parse(selection.uri)
+                val imageRequest = intent.action in setOf(ACTION_PICK_IMAGE, ACTION_PICK_COMPONENT_ICON, ACTION_PICK_APP_ICON)
                 val title = withContext(Dispatchers.IO) {
                     check(uri.scheme == "content") { "系统返回的文件无效" }
                     check((selection.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0) { "未获得文件读取权限" }
                     val returned = selection.flags
                     check(returned and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0) { "提供方未提供可持续授权，请换一个文件提供方" }
-                    val grantFlags = returned and (Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                        if (intent.action == ACTION_PICK_FILE) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
-                    contentResolver.takePersistableUriPermission(uri, grantFlags)
                     val name = contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
                         check(it.moveToFirst()) { "无法读取所选文件" }
                         it.getString(0)
                     }?.takeIf { it.isNotBlank() } ?: "未命名文件"
                     contentResolver.openFileDescriptor(uri, "r")?.use { } ?: error("无法读取所选文件")
+                    if (imageRequest) check(contentResolver.getType(uri)?.startsWith("image/") == true) { "请选择图片文件" }
+                    grantFlags = returned and (Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        if (intent.action == ACTION_PICK_FILE) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
+                    contentResolver.takePersistableUriPermission(uri, grantFlags)
+                    persistedNow = true
                     name
                 }
-                if (completed) return@launch
-                val imageRequest = intent.action in setOf(ACTION_PICK_IMAGE, ACTION_PICK_COMPONENT_ICON, ACTION_PICK_APP_ICON)
-                if (imageRequest) check(contentResolver.getType(uri)?.startsWith("image/") == true) { "请选择图片文件" }
-                val saved = when (intent.action) {
-                    ACTION_PICK_COMPONENT_ICON -> repository.saveComponentIcon(
-                        intent.getStringExtra(EXTRA_PAGE_ID) ?: error("目标页面已失效"),
-                        intent.getStringExtra(EXTRA_COMPONENT_ID) ?: error("目标卡片已失效"), uri.toString())
-                    ACTION_PICK_APP_ICON -> {
-                        val targetPackage = intent.getStringExtra(EXTRA_ICON_PACKAGE) ?: error("目标应用已失效")
-                        try { packageManager.getApplicationInfo(targetPackage, 0) }
-                        catch (_: android.content.pm.PackageManager.NameNotFoundException) { error("目标应用已卸载，未保存图标") }
-                        repository.saveAppIcon(targetPackage, uri.toString())
-                    }
-                    ACTION_PICK_IMAGE -> repository.saveImageCard(
-                        intent.getStringExtra(EXTRA_PAGE_ID) ?: error("目标页面已失效"), intent.getStringExtra(EXTRA_COMPONENT_ID), title, uri.toString(), intent.getStringExtra("container_id"), intent.getStringExtra("before_component_id"))
-                    else -> repository.saveFileShortcut(
-                        intent.getStringExtra(EXTRA_PAGE_ID) ?: error("目标页面已失效"), intent.getStringExtra(EXTRA_COMPONENT_ID), title, uri.toString(), intent.getStringExtra("container_id"), intent.getStringExtra("before_component_id"))
+                if (completed) {
+                    if (persistedNow && !alreadyPersisted) releasePersistedQuietly(uri, grantFlags)
+                    return@launch
                 }
+                val saved = saveValidatedDocument(uri, title)
+                if (!saved && persistedNow && !alreadyPersisted) releasePersistedQuietly(uri, grantFlags)
                 val writable = contentResolver.persistedUriPermissions.any { it.uri == uri && it.isWritePermission }
                 finishAccess(if (saved) if (intent.action in setOf(ACTION_PICK_COMPONENT_ICON, ACTION_PICK_APP_ICON)) "已更新图标" else "已保存文件：$title${if (intent.action == ACTION_PICK_FILE) if (writable) "（已授读写，实际写入由提供方决定）" else "（仅只读；提供方未授写入）" else ""}"
                     else "布局已锁定或目标页面/卡片已删除，未保存")
-            } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { finishAccess("文件选择失败：${e.message ?: "请重新选择"}") }
-            finally { documentProcessing = false }
+            } catch (e: CancellationException) {
+                if (persistedNow && !alreadyPersisted) releasePersistedQuietly(uri, grantFlags)
+                throw e
+            } catch (e: Exception) {
+                if (persistedNow && !alreadyPersisted) releasePersistedQuietly(uri, grantFlags)
+                finishAccess("文件选择失败：${e.message ?: "请重新选择"}")
+            } finally { documentProcessing = false }
+        }
+    }
+
+    private fun saveValidatedDocument(uri: Uri, title: String): Boolean = when (intent.action) {
+        ACTION_PICK_COMPONENT_ICON -> repository.saveComponentIcon(
+            intent.getStringExtra(EXTRA_PAGE_ID) ?: error("目标页面已失效"),
+            intent.getStringExtra(EXTRA_COMPONENT_ID) ?: error("目标卡片已失效"), uri.toString()
+        )
+        ACTION_PICK_APP_ICON -> {
+            val targetPackage = intent.getStringExtra(EXTRA_ICON_PACKAGE) ?: error("目标应用已失效")
+            try { packageManager.getApplicationInfo(targetPackage, 0) }
+            catch (_: android.content.pm.PackageManager.NameNotFoundException) { error("目标应用已卸载，未保存图标") }
+            repository.saveAppIcon(targetPackage, uri.toString())
+        }
+        else -> {
+            val gridCol = intent.getIntExtra("target_grid_col", -1)
+            val gridRow = intent.getIntExtra("target_grid_row", -1)
+            val gridCell = if (gridCol >= 0 && gridRow >= 0) gridCol to gridRow else null
+            val targetPage = intent.getStringExtra(EXTRA_PAGE_ID) ?: error("目标页面已失效")
+            if (intent.action == ACTION_PICK_IMAGE) {
+                repository.saveImageCard(targetPage, intent.getStringExtra(EXTRA_COMPONENT_ID), title, uri.toString(),
+                    intent.getStringExtra("container_id"), intent.getStringExtra("before_component_id"), gridCell)
+            } else {
+                repository.saveFileShortcut(targetPage, intent.getStringExtra(EXTRA_COMPONENT_ID), title, uri.toString(),
+                    intent.getStringExtra("container_id"), intent.getStringExtra("before_component_id"), gridCell)
+            }
         }
     }
 

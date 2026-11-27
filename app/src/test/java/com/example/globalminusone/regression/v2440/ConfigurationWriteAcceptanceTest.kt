@@ -5,6 +5,13 @@ import com.example.globalminusone.MemoryPreferences
 import com.example.globalminusone.data.*
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.BoundWidgetInfo
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.storage.ConfigurationWriteAcceptance
+import com.example.globalminusone.data.MinusOneRepository
+import com.example.globalminusone.data.PageLayoutType
+import com.example.globalminusone.data.operations.findComponent
 
 class ConfigurationWriteAcceptanceTest {
     private val key = "state_json_v5"

@@ -4,12 +4,16 @@ import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.gestures.ScrollableState
 import com.example.globalminusone.MemoryPreferences
 import com.example.globalminusone.data.*
-import com.example.globalminusone.ui.panel.PanelScrollTarget
-import com.example.globalminusone.ui.panel.nativeContainerScrollRoute
+import com.example.globalminusone.ui.panel.gesture.PanelScrollTarget
+import com.example.globalminusone.ui.panel.gesture.nativeContainerScrollRoute
 import androidx.compose.foundation.ScrollState
 import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.MinusOneRepository
+import com.example.globalminusone.data.operations.findComponent
 
 class ContainerScrollAndPhotoTargetTest {
     @Test fun oneNativeNodeConsumesLocallyWithoutManuallyMovingItsAncestor() {

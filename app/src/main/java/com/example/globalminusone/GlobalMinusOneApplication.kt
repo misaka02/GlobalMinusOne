@@ -13,9 +13,22 @@ import com.example.globalminusone.system.ScreenToolRequestsOwner
 import com.example.globalminusone.system.PanelVisibilityRequests
 import com.example.globalminusone.system.PanelVisibilityRequestsOwner
 import com.example.globalminusone.system.trimCardImageCache
-import com.example.globalminusone.ui.panel.UserIconCache
+import com.example.globalminusone.ui.panel.cards.UserIconCache
 import androidx.compose.foundation.ComposeFoundationFlags
 import androidx.compose.foundation.ExperimentalFoundationApi
+
+internal enum class MemoryTrimAction { NONE, SOFT_TRIM, SEVERE_TRIM }
+
+/**
+ * Screen-off and backgrounding dispatch `TRIM_MEMORY_UI_HIDDEN` / `MODERATE`;
+ * evicting overlay icon bitmaps there makes the first swipe after unlock jank.
+ * Trim only under real memory pressure.
+ */
+internal fun resolveMemoryTrimAction(level: Int): MemoryTrimAction = when {
+    level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL -> MemoryTrimAction.SOFT_TRIM
+    level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> MemoryTrimAction.SOFT_TRIM
+    else -> MemoryTrimAction.NONE
+}
 
 class GlobalMinusOneApplication : Application(), PanelVisibilityRequestsOwner, SystemAccessibilityActionsOwner, ScreenToolRequestsOwner {
     override val panelVisibilityRequests: PanelVisibilityRequests = object : PanelVisibilityRequests {
@@ -47,7 +60,7 @@ class GlobalMinusOneApplication : Application(), PanelVisibilityRequestsOwner, S
         override fun supportsPrivilegedScreenCapture(context: Context): Boolean {
             val config = com.example.globalminusone.data.MinusOneRepository.getInstance(context).state.value.advancedConfig
             return config.rootModeEnabled || config.screenAssistantConfig.usePrivilegedCapture ||
-                com.example.globalminusone.system.UserRootSession.authorizedEpoch() != null ||
+                com.example.globalminusone.system.privilege.UserRootSession.authorizedEpoch() != null ||
                 com.example.globalminusone.screenassistant.ScreenCaptureHub.shizukuAuthorized()
         }
     }
@@ -67,8 +80,10 @@ class GlobalMinusOneApplication : Application(), PanelVisibilityRequestsOwner, S
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
-            trimCachedMemory(severe = level > ComponentCallbacks2.TRIM_MEMORY_BACKGROUND)
+        when (resolveMemoryTrimAction(level)) {
+            MemoryTrimAction.NONE -> Unit
+            MemoryTrimAction.SOFT_TRIM -> trimCachedMemory(severe = false)
+            MemoryTrimAction.SEVERE_TRIM -> trimCachedMemory(severe = true)
         }
     }
 

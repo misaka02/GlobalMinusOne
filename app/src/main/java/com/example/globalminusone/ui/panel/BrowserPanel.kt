@@ -7,6 +7,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import com.example.globalminusone.browser.IndependentBrowser
 import com.example.globalminusone.browser.resolveBrowserDestination
+import com.example.globalminusone.ui.panel.gesture.ownPanelScrollGestures
 
 internal typealias BrowserTab = com.example.globalminusone.browser.BrowserTab
 internal typealias IndependentBrowserSession = com.example.globalminusone.browser.IndependentBrowserSession

@@ -10,6 +10,25 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.example.globalminusone.data.AdvancedConfig
+import com.example.globalminusone.data.BoundWidgetInfo
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.ConfigProfile
+import com.example.globalminusone.data.FileBrowserConfig
+import com.example.globalminusone.data.FileBrowserRoot
+import com.example.globalminusone.data.FileBrowserSortOrder
+import com.example.globalminusone.data.GlobalMinusOneState
+import com.example.globalminusone.data.operations.MAX_COMPONENT_TREE_DEPTH
+import com.example.globalminusone.data.MinusOneRepository
+import com.example.globalminusone.data.PageConfig
+import com.example.globalminusone.data.PageLayoutType
+import com.example.globalminusone.data.QuickActionItem
+import com.example.globalminusone.data.operations.componentPath
+import com.example.globalminusone.data.operations.findComponent
+import com.example.globalminusone.data.policy.nextComponentPlacementY
+import com.example.globalminusone.data.operations.savedWidgetIds
+import com.example.globalminusone.data.operations.validateComponentTrees
 
 class MinusOneRepositoryTest {
     private val json = Json { encodeDefaults = true }

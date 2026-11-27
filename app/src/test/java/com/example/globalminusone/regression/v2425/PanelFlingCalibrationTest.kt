@@ -5,6 +5,8 @@ import androidx.compose.foundation.gestures.ScrollScope
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.ui.panel.gesture.CalibratedPanelFling
+import com.example.globalminusone.ui.panel.gesture.PanelFlingCalibration
 
 class PanelFlingCalibrationTest {
     private fun swipe(clock: () -> Long, offset: Float = 0f): PanelFlingCalibration = PanelFlingCalibration(clock).also {

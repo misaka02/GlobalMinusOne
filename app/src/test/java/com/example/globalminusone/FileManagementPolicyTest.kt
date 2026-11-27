@@ -5,6 +5,26 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.system.file.AnalyzerSortOrder
+import com.example.globalminusone.system.file.BrowserEntry
+import com.example.globalminusone.system.file.BrowserLocation
+import com.example.globalminusone.system.file.DuplicateFileGroup
+import com.example.globalminusone.system.file.FileCategory
+import com.example.globalminusone.system.file.FileCategoryUsage
+import com.example.globalminusone.system.file.FileScanResult
+import com.example.globalminusone.system.file.computeStreamChecksums
+import com.example.globalminusone.system.file.including
+import com.example.globalminusone.system.file.knownRatio
+import com.example.globalminusone.system.file.location
+import com.example.globalminusone.system.file.matchesQuickFilter
+import com.example.globalminusone.system.file.relativeAnalyzerParentLabel
+import com.example.globalminusone.system.file.searchFileTree
+import com.example.globalminusone.system.file.selectRedundantDuplicateKeys
+import com.example.globalminusone.system.file.sortAnalyzerEntries
+import com.example.globalminusone.system.file.validatedFileName
+import com.example.globalminusone.system.file.withRenamed
+import com.example.globalminusone.system.file.withoutDeleted
+import com.example.globalminusone.system.file.withoutDeletedKeys
 
 class FileManagementPolicyTest {
     private val root = BrowserLocation("root", path = "/synthetic")

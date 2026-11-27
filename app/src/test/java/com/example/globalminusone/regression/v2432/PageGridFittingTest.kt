@@ -7,6 +7,21 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.policy.GRID_SPAN_FULL_ROW
+import com.example.globalminusone.data.GlobalMinusOneState
+import com.example.globalminusone.data.MAX_GRID_GAP_DP
+import com.example.globalminusone.data.MIN_GRID_GAP_DP
+import com.example.globalminusone.data.MinusOneRepository
+import com.example.globalminusone.data.PageConfig
+import com.example.globalminusone.data.ROW_GAP_INHERIT
+import com.example.globalminusone.data.policy.arrangeContainerChildren
+import com.example.globalminusone.data.policy.arrangePageGridComponents
+import com.example.globalminusone.data.policy.containerIconSizeDp
+import com.example.globalminusone.data.policy.derivePageGridMetrics
+import com.example.globalminusone.data.policy.fitPageGridColumns
+import com.example.globalminusone.data.policy.resizedPageGridSpan
 
 class PageGridFittingTest {
     @Test fun fixedColumnCountSurvivesIconAndSpacingChangesWithoutOverflow() {

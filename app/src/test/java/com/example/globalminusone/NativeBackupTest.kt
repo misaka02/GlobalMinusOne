@@ -11,6 +11,15 @@ import java.io.ByteArrayOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
+import com.example.globalminusone.data.BoundWidgetInfo
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.ConfigProfile
+import com.example.globalminusone.data.GlobalMinusOneState
+import com.example.globalminusone.data.MinusOneRepository
+import com.example.globalminusone.data.PageConfig
+import com.example.globalminusone.data.QuickActionItem
+import com.example.globalminusone.data.operations.flattenComponents
 
 class NativeBackupTest {
     private val json = NativeBackupCodec.json
@@ -196,4 +205,3 @@ class NativeBackupTest {
         assertFalse(repository.appendImportedFolder(folder.copy(id = "another"), page.id))
     }
 }
-

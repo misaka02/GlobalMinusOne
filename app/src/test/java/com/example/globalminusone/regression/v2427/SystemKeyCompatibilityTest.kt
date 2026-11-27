@@ -2,6 +2,7 @@ package com.example.globalminusone.service
 
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.service.overlay.dispatchWithCallFallbackGuard
 
 class SystemKeyCompatibilityTest {
     @Test fun onlyUnhandledAndroid12CallFallsBackToSafeConsumption() {

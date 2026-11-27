@@ -1,15 +1,15 @@
 package com.example.globalminusone.regression.v2486
 
-import com.example.globalminusone.data.AppDrawerCardSpec
-import com.example.globalminusone.data.AppKeyboardLauncherSpec
+import com.example.globalminusone.data.policy.AppDrawerCardSpec
+import com.example.globalminusone.data.policy.AppKeyboardLauncherSpec
 import com.example.globalminusone.data.ComponentItem
 import com.example.globalminusone.data.ComponentType
-import com.example.globalminusone.data.LauncherCardPresentationMode
-import com.example.globalminusone.data.defaultPageGridSpan
-import com.example.globalminusone.data.derivePageGridMetrics
-import com.example.globalminusone.data.isContainerGridIconItem
-import com.example.globalminusone.data.isSingleIconLauncherItem
-import com.example.globalminusone.data.resolvePageGridSpan
+import com.example.globalminusone.data.policy.LauncherCardPresentationMode
+import com.example.globalminusone.data.policy.defaultPageGridSpan
+import com.example.globalminusone.data.policy.derivePageGridMetrics
+import com.example.globalminusone.data.policy.isContainerGridIconItem
+import com.example.globalminusone.data.policy.isSingleIconLauncherItem
+import com.example.globalminusone.data.policy.resolvePageGridSpan
 import com.example.globalminusone.screenassistant.ScreenOcrCoordinator
 import com.example.globalminusone.screenassistant.ScreenTextBlock
 import com.example.globalminusone.screenassistant.ScreenTextInpainter

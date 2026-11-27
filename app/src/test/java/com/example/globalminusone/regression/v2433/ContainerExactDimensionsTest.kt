@@ -3,6 +3,15 @@ package com.example.globalminusone.regression.v2433
 import com.example.globalminusone.data.*
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.policy.ContainerGridChildBounds
+import com.example.globalminusone.data.ContainerLayoutType
+import com.example.globalminusone.data.policy.componentDisplayHeightDp
+import com.example.globalminusone.data.policy.containerGridChildBounds
+import com.example.globalminusone.data.policy.containerGridContentWidthDp
+import com.example.globalminusone.data.policy.containerIconSizeDp
+import com.example.globalminusone.data.policy.containerPopupWidthDp
 
 class ContainerExactDimensionsTest {
     private val children = List(8) { ComponentItem(id = "app-$it", type = ComponentType.APP_ICON,

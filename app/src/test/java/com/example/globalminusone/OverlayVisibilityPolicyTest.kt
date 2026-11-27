@@ -2,7 +2,7 @@ package com.example.globalminusone
 
 import com.example.globalminusone.data.GlobalMinusOneState
 import com.example.globalminusone.data.TriggerWay
-import com.example.globalminusone.service.OverlayVisibilityPolicy
+import com.example.globalminusone.service.overlay.OverlayVisibilityPolicy
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test

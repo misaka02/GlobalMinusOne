@@ -1,7 +1,7 @@
 package com.example.globalminusone.regression.v2485
 
-import com.example.globalminusone.data.KeyboardCardLayout
-import com.example.globalminusone.data.resolveKeyboardPodDimensions
+import com.example.globalminusone.data.policy.KeyboardCardLayout
+import com.example.globalminusone.data.policy.resolveKeyboardPodDimensions
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -20,11 +20,10 @@ class V2485WhiteBgOriginalPriorSplitMergeAndKeyboardPodTest {
             insideContainer = false,
             showNumberRow = false
         )
-        assertTrue("podWidthDp must fit single-hand range 268..304dp, got ${tallCard.podWidthDp}", tallCard.podWidthDp in 268f..304f)
-        assertEquals(tallCard.podWidthDp, tallCard.candidateMaxStripWidthDp, 0.01f)
-        assertTrue("Floating candidate strip must not span full 396dp screen: ${tallCard.candidateMaxStripWidthDp}", tallCard.candidateMaxStripWidthDp <= 304f)
-        assertTrue("QWERTY key height must stay in 28..40dp, got ${tallCard.qwertyKeyHeightDp}", tallCard.qwertyKeyHeightDp in 28f..40f)
-        val approxKeyW = (tallCard.podWidthDp - 14f - 22.5f) / 10.6f
+        assertTrue("podWidthDp must fit enlarged single-hand range 308..368dp, got ${tallCard.podWidthDp}", tallCard.podWidthDp in 308f..368f)
+        assertTrue("Detached candidate area constrains to comfortable single-hand width: ${tallCard.candidateMaxStripWidthDp}", tallCard.candidateMaxStripWidthDp in 248f..296f)
+        assertTrue("QWERTY key height must stay in 34..48dp, got ${tallCard.qwertyKeyHeightDp}", tallCard.qwertyKeyHeightDp in 34f..48f)
+        val approxKeyW = (tallCard.podWidthDp - 10f - 22.5f) / 10.2f
         val aspectRatio = tallCard.qwertyKeyHeightDp / approxKeyW
         assertTrue("Key height/width aspect must never distort near 5:1 (got $aspectRatio)", aspectRatio in 1.1f..1.85f)
         assertTrue("Tall card should surface inline thumb-priority candidates above keypad", tallCard.canShowInlineCandidates)
@@ -40,10 +39,10 @@ class V2485WhiteBgOriginalPriorSplitMergeAndKeyboardPodTest {
         )
         assertTrue("Folder card must trigger pop-out single-hand pod", folderCard.shouldUsePopOutPod)
         assertFalse(folderCard.canShowInlineCandidates)
-        assertTrue("Pod width stays <= 304dp", folderCard.podWidthDp in 268f..304f)
-        assertTrue("T9 key height stays in 30..38dp, got ${folderCard.t9KeyHeightDp}", folderCard.t9KeyHeightDp in 30f..38f)
+        assertTrue("T9 pod preserves original compact width 268..304dp, got ${folderCard.podWidthDp}", folderCard.podWidthDp in 268f..304f)
+        assertTrue("T9 key height preserves original compact range 30..38dp, got ${folderCard.t9KeyHeightDp}", folderCard.t9KeyHeightDp in 30f..38f)
 
-        // Case 3: Narrow host popup width (< 284dp) clamps pod width strictly inside host margin.
+        // Case 3: Narrow host popup width (< 284dp) clamps pod width strictly inside host bounds.
         val narrowHost = resolveKeyboardPodDimensions(
             layout = KeyboardCardLayout.QWERTY,
             hostWidthDp = 260f,
@@ -51,7 +50,7 @@ class V2485WhiteBgOriginalPriorSplitMergeAndKeyboardPodTest {
             cardHeightDp = 180f,
             insideContainer = true
         )
-        assertTrue(narrowHost.podWidthDp <= 244f)
+        assertTrue(narrowHost.podWidthDp <= 256f)
         assertTrue(narrowHost.shouldUsePopOutPod)
     }
 }

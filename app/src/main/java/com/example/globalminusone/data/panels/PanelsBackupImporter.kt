@@ -6,6 +6,14 @@ import java.io.InputStream
 import java.net.URI
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.ContainerLayoutType
+import com.example.globalminusone.data.policy.GRID_SPAN_FULL_ROW
+import com.example.globalminusone.data.PageConfig
+import com.example.globalminusone.data.PageLayoutType
+import com.example.globalminusone.data.policy.containerIconSizeDp
+import com.example.globalminusone.data.policy.isContainerGridIcon
 
 data class PanelsPageChoice(val id: Int, val title: String, val setId: Int, val columns: Int,
     val itemCount: Int, val isAppDrawer: Boolean)

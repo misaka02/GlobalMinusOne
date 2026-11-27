@@ -4,6 +4,16 @@ import com.example.globalminusone.data.*
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.policy.ContainerPopupBounds
+import com.example.globalminusone.data.policy.ContainerPopupPosition
+import com.example.globalminusone.data.policy.arrangeContainerChildren
+import com.example.globalminusone.data.policy.componentDisplayHeightDp
+import com.example.globalminusone.data.policy.containerPopupBounds
+import com.example.globalminusone.data.policy.containerPopupColumns
+import com.example.globalminusone.data.policy.containerPopupPosition
+import com.example.globalminusone.data.policy.containerPopupWidthDp
 
 class ContainerPopupPolicyTest {
     @Test fun overlayVisibleFrameCannotWidenPopupBeyondActualHostOrDisplay() {

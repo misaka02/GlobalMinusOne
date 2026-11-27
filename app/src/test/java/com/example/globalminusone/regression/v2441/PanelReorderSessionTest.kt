@@ -2,9 +2,14 @@ package com.example.globalminusone.regression.v2441
 
 import com.example.globalminusone.MemoryPreferences
 import com.example.globalminusone.data.*
-import com.example.globalminusone.ui.panel.hasLinearCardTools
+import com.example.globalminusone.ui.panel.gesture.hasLinearCardTools
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.MinusOneRepository
+import com.example.globalminusone.data.PageLayoutType
+import com.example.globalminusone.data.PageTransition
 
 class PanelReorderSessionTest {
     private val order = listOf("a", "b", "c")
@@ -17,6 +22,8 @@ class PanelReorderSessionTest {
     @Test fun backDismissesCardToolsBeforeResolvingTheEdit() {
         val repo = repository()
         assertTrue(repo.setEditMode(true))
+        assertFalse(repo.state.value.hasLinearCardTools())
+        repo.selectComponent("b")
         assertTrue(repo.state.value.hasLinearCardTools())
         repo.selectComponent(null)
         assertTrue(repo.state.value.editMode)

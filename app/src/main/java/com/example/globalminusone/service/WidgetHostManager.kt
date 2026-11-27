@@ -325,6 +325,17 @@ class WidgetHostManager private constructor(context: Context) {
         }
     }
 
+    /** Stops binder updates while keeping cached host views intact for instant resume. */
+    fun pauseListening() {
+        if (!listening) return
+        listening = false
+        try {
+            appWidgetHost.stopListening()
+        } catch (e: Throwable) {
+            Log.w(TAG, "pauseListening error", e)
+        }
+    }
+
     fun stopListening() {
         listening = false
         try {

@@ -1,6 +1,6 @@
 package com.example.globalminusone
 
-import com.example.globalminusone.system.FilePreviewFormats
+import com.example.globalminusone.system.file.FilePreviewFormats
 import org.junit.Assert.*
 import org.junit.Test
 import java.io.File

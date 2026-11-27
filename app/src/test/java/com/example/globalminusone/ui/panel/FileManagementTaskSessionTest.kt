@@ -1,11 +1,12 @@
 package com.example.globalminusone.ui.panel
 
-import com.example.globalminusone.system.FileCategory
-import com.example.globalminusone.system.FileSearchResult
+import com.example.globalminusone.system.file.FileCategory
+import com.example.globalminusone.system.file.FileSearchResult
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.*
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.ui.panel.file.FileManagementTaskSession
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class FileManagementTaskSessionTest {

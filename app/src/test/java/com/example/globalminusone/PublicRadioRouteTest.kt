@@ -1,7 +1,7 @@
 package com.example.globalminusone
 
-import com.example.globalminusone.system.RadioKind
-import com.example.globalminusone.system.supportsPublicRadioToggle
+import com.example.globalminusone.system.media.RadioKind
+import com.example.globalminusone.system.media.supportsPublicRadioToggle
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test

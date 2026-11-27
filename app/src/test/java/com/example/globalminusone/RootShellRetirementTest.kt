@@ -1,7 +1,7 @@
 package com.example.globalminusone
 
-import com.example.globalminusone.system.RootShellRetirement
-import com.example.globalminusone.system.snapshotPendingRetirements
+import com.example.globalminusone.system.privilege.RootShellRetirement
+import com.example.globalminusone.system.privilege.snapshotPendingRetirements
 import org.junit.Assert.*
 import org.junit.Test
 import java.util.concurrent.CountDownLatch

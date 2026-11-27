@@ -17,15 +17,15 @@ import com.example.globalminusone.data.PageTransition
 import com.example.globalminusone.data.QuickActionItem
 import com.example.globalminusone.data.ROW_GAP_INHERIT
 import com.example.globalminusone.data.ThemeConfig
-import com.example.globalminusone.data.arrangePageGridComponents
+import com.example.globalminusone.data.policy.arrangePageGridComponents
 import com.example.globalminusone.data.backup.NativeBackupCodec
-import com.example.globalminusone.data.componentDisplayHeightDp
-import com.example.globalminusone.data.containerGridChildBounds
-import com.example.globalminusone.data.containerPopupColumns
-import com.example.globalminusone.data.derivePageGridMetrics
-import com.example.globalminusone.data.normalizedPanelGeometry
-import com.example.globalminusone.data.resolveContainerGridDropPlacements
-import com.example.globalminusone.data.resolvePageGridDropPlacements
+import com.example.globalminusone.data.policy.componentDisplayHeightDp
+import com.example.globalminusone.data.policy.containerGridChildBounds
+import com.example.globalminusone.data.policy.containerPopupColumns
+import com.example.globalminusone.data.policy.derivePageGridMetrics
+import com.example.globalminusone.data.policy.normalizedPanelGeometry
+import com.example.globalminusone.data.policy.resolveContainerGridDropPlacements
+import com.example.globalminusone.data.policy.resolvePageGridDropPlacements
 import com.example.globalminusone.system.AppAndIntentLauncher
 import com.example.globalminusone.system.BoundedMemoryLruCache
 import org.junit.Assert.assertEquals
@@ -33,6 +33,11 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.example.globalminusone.ui.panel.cards.UserIconCache
+import com.example.globalminusone.ui.panel.container.collectComponentTreeIcons
+import com.example.globalminusone.ui.panel.layout.computePageTransitionSpec
+import com.example.globalminusone.ui.panel.editor.previousPropertySection
+import com.example.globalminusone.ui.panel.layout.resolveTransitionCompositingStrategy
 
 class UiPolishAndCachePolicyTest {
 

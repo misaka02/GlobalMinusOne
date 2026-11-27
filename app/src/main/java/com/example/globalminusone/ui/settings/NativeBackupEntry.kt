@@ -16,10 +16,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.globalminusone.data.MinusOneRepository
+import com.example.globalminusone.data.backup.BackupExportMode
 import com.example.globalminusone.data.backup.DecodedNativeBackup
 import com.example.globalminusone.data.backup.NativeBackupCodec
 import com.example.globalminusone.data.backup.NativeBackupStore
@@ -34,7 +36,10 @@ import java.io.ByteArrayInputStream
 import java.io.File
 
 @Composable
-fun NativeBackupEntry(repository: MinusOneRepository) {
+fun NativeBackupEntry(
+    repository: MinusOneRepository,
+    autoLaunchPageImportToken: Long = 0L
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val state by repository.state.collectAsState()
@@ -43,8 +48,13 @@ fun NativeBackupEntry(repository: MinusOneRepository) {
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var pending by remember { mutableStateOf<DecodedNativeBackup?>(null) }
+    var showExportDialog by remember { mutableStateOf(false) }
+    var exportMode by remember { mutableStateOf(BackupExportMode.FULL) }
+    var exportSelectedPageIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var detectedPanelsArchive by remember { mutableStateOf<PanelsImportArchive?>(null) }
     var recovery by remember { mutableStateOf<File?>(null) }
+    var lastAutoLaunchToken by rememberSaveable { mutableLongStateOf(0L) }
+    var preferPageAppendMode by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(store) {
         recovery = withContext(Dispatchers.IO) { store.latestRecoveryFile() }
     }
@@ -68,7 +78,8 @@ fun NativeBackupEntry(repository: MinusOneRepository) {
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         if (uri != null) work {
             message = runCatching { withContext(Dispatchers.IO) {
-                val payload = requireNotNull(context.contentResolver.openOutputStream(uri, "wt")) { "不能写入所选文件" }.use(store::export)
+                val payload = requireNotNull(context.contentResolver.openOutputStream(uri, "wt")) { "不能写入所选文件" }
+                    .use { out -> store.exportScoped(out, exportMode, exportSelectedPageIds) }
                 "备份已写入：${payload.state.pages.size} 页、${payload.state.profiles.size} 个方案、${payload.assets.size} 个图片引用。\n" + payload.warnings.joinToString("\n")
             } }.getOrElse { if (it is CancellationException) throw it; "备份失败：${it.message}" }
         }
@@ -98,37 +109,72 @@ fun NativeBackupEntry(repository: MinusOneRepository) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)
     ) {
-        Text("完整备份与恢复", style = MaterialTheme.typography.titleMedium)
-        Text("保存配置、独立方案、浏览器书签/历史/设置及可读取的图片。文件可能包含个人数据，请妥善保管。", style = MaterialTheme.typography.bodySmall)
+        Text("分层备份与恢复", style = MaterialTheme.typography.titleMedium)
+        Text("支持完整备份、仅导出选中页面或仅设置导出；导入支持完整替换或按模块/单页选择，并在面板尺寸/列数不适配时自动提示。", style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { export.launch("GlobalMinusOne-backup.zip") }, enabled = !busy) { Text("备份到文件") }
-            OutlinedButton(onClick = { open.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }, enabled = !busy && restoreAllowed) { Text("恢复备份") }
+            OutlinedButton(onClick = { showExportDialog = true }, enabled = !busy) { Text("导出备份…") }
+            OutlinedButton(
+                onClick = {
+                    preferPageAppendMode = false
+                    open.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+                },
+                enabled = !busy && restoreAllowed
+            ) { Text("导入 / 恢复…") }
+        }
+        LaunchedEffect(autoLaunchPageImportToken, restoreAllowed, busy) {
+            if (autoLaunchPageImportToken > lastAutoLaunchToken && restoreAllowed && !busy) {
+                lastAutoLaunchToken = autoLaunchPageImportToken
+                preferPageAppendMode = true
+                open.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+            }
         }
         if (!restoreAllowed) Text("恢复前请先结束面板编辑并解锁布局。", style = MaterialTheme.typography.bodySmall)
         if (busy) Text("正在处理备份…", style = MaterialTheme.typography.bodySmall)
         if (recovery != null) TextButton(onClick = { saveRecovery.launch("GlobalMinusOne-before-restore.zip") }, enabled = !busy) { Text("另存恢复前备份") }
     }
+    if (showExportDialog) {
+        BackupExportOptionsDialog(
+            state = state,
+            onDismiss = { showExportDialog = false },
+            onConfirm = { mode, pageIds ->
+                exportMode = mode
+                exportSelectedPageIds = pageIds
+                showExportDialog = false
+                val fileName = when (mode) {
+                    BackupExportMode.FULL -> "GlobalMinusOne-full-backup.zip"
+                    BackupExportMode.SELECTED_PAGES -> "GlobalMinusOne-pages-backup.zip"
+                    BackupExportMode.SETTINGS_ONLY -> "GlobalMinusOne-settings-backup.zip"
+                }
+                export.launch(fileName)
+            }
+        )
+    }
     pending?.let { backup ->
-        AlertDialog(onDismissRequest = { if (!busy) pending = null }, title = { Text("确认恢复备份") },
-            text = { Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(if (backup.payload.configurationOnly) "将替换配置及方案，保留当前浏览器书签/历史/设置：${backup.payload.state.pages.size} 页、${backup.payload.state.profiles.size} 个方案。旧格式不含图片文件。恢复前会先保存一份本机恢复备份。" else "将替换当前全部配置、方案及浏览器书签/历史/设置：${backup.payload.state.pages.size} 页、${backup.payload.state.profiles.size} 个方案、${backup.assets.size} 个图片文件。恢复前会先保存一份本机恢复备份。")
-                Text("同一安装中经系统核验仍有效的小部件绑定会保留，其余小部件卡片需重新绑定。SAF 目录权限、登录状态和其它系统授权不能由备份迁移。浏览器书签和设置将在恢复后刷新，现有网页标签不清空。")
-                backup.payload.warnings.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
-            } },
-            confirmButton = { TextButton(enabled = !busy && restoreAllowed, onClick = {
+        BackupRestoreOptionsDialog(
+            backup = backup,
+            currentState = state,
+            busy = busy,
+            restoreAllowed = restoreAllowed,
+            defaultPageAppendOnly = preferPageAppendMode,
+            onDismiss = { if (!busy) pending = null },
+            onConfirm = { selection ->
                 if (repository.state.value.editMode || repository.state.value.advancedConfig.layoutLocked) {
                     message = "恢复前请先结束面板编辑并解锁布局。"
                 } else work {
-                    runCatching { withContext(Dispatchers.IO) { store.restore(backup) } }
-                        .onSuccess { recovery = it; pending = null; message = "恢复已写入，浏览器配置已通知刷新。请检查目录授权及小部件绑定。恢复前备份已保留，可点击“另存恢复前备份”保存到文件。" }
+                    runCatching { withContext(Dispatchers.IO) { store.restoreSelective(backup, selection) } }
+                        .onSuccess {
+                            recovery = it
+                            pending = null
+                            message = "导入已完成。恢复前备份已保留，可点击“另存恢复前备份”保存。若包含小部件或 SAF 目录卡片，请检查对应系统授权。"
+                        }
                         .onFailure {
                             if (it is CancellationException) throw it
                             recovery = withContext(Dispatchers.IO) { store.latestRecoveryFile() }
                             message = it.message ?: "恢复失败"
                         }
-                        }
-            }) { Text("确认替换") } },
-            dismissButton = { TextButton(enabled = !busy, onClick = { pending = null }) { Text("取消") } })
+                }
+            }
+        )
     }
     detectedPanelsArchive?.let { panelsArchive ->
         PanelsImportHostDialog(
@@ -146,4 +192,3 @@ fun NativeBackupEntry(repository: MinusOneRepository) {
         text = { Text(text, Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) },
         confirmButton = { TextButton(onClick = { message = null }) { Text("知道了") } }) }
 }
-

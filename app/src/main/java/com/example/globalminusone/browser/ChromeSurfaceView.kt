@@ -16,7 +16,7 @@ import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.Surface
 import android.view.TextureView
-import com.example.globalminusone.system.UserRootSession
+import com.example.globalminusone.system.privilege.UserRootSession
 import com.topjohnwu.superuser.Shell
 import com.topjohnwu.superuser.ipc.RootService
 import rikka.shizuku.Shizuku

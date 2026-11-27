@@ -4,7 +4,7 @@ import androidx.compose.ui.graphics.Color
 import com.example.globalminusone.data.ComponentItem
 import com.example.globalminusone.data.ComponentType
 import com.example.globalminusone.data.ThemeConfig
-import com.example.globalminusone.ui.panel.resolveCardPalette
+import com.example.globalminusone.ui.panel.cards.resolveCardPalette
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

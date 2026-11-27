@@ -1,6 +1,6 @@
 package com.example.globalminusone.ui.motion
 
-import com.example.globalminusone.data.resolveEffectiveAnimationMs
+import com.example.globalminusone.data.policy.resolveEffectiveAnimationMs
 import kotlin.math.abs
 import kotlin.math.exp
 

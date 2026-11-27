@@ -10,6 +10,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.storage.ConfigurationCodec
 
 /** A bounded JVM baseline, not Android disk I/O or a frame-time benchmark. */
 class ConfigurationStorageMeasurementTest {

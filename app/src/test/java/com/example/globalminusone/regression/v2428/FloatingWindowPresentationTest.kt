@@ -1,8 +1,8 @@
 package com.example.globalminusone.regression.v2428
 
-import com.example.globalminusone.ui.panel.FLOATING_WINDOW_MIN_HEIGHT_DP
-import com.example.globalminusone.ui.panel.floatingWindowPresentationBounds
-import com.example.globalminusone.ui.panel.workspaceWindowBounds
+import com.example.globalminusone.ui.panel.file.FLOATING_WINDOW_MIN_HEIGHT_DP
+import com.example.globalminusone.ui.panel.file.floatingWindowPresentationBounds
+import com.example.globalminusone.ui.panel.file.workspaceWindowBounds
 import org.junit.Assert.*
 import org.junit.Test
 

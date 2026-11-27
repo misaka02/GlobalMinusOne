@@ -2,6 +2,12 @@ package com.example.globalminusone.system
 
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.system.media.BrightnessMode
+import com.example.globalminusone.system.media.BrightnessState
+import com.example.globalminusone.system.media.PublicBrightnessScaleGuard
+import com.example.globalminusone.system.media.brightnessMode
+import com.example.globalminusone.system.media.publicBrightnessPercent
+import com.example.globalminusone.system.media.publicBrightnessValue
 
 class BrightnessPolicyTest {
     @Test fun missingOrOemScaleIsUnknownInsteadOfBeingMisreadAsAPublicBrightnessLevel() {

@@ -4,6 +4,15 @@ import com.example.globalminusone.data.*
 import com.example.globalminusone.ui.panel.*
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.ClipboardRecord
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.GlobalMinusOneState
+import com.example.globalminusone.data.PageConfig
+import com.example.globalminusone.ui.panel.editor.CardDestructiveAction
+import com.example.globalminusone.ui.panel.editor.CardDestructiveRequest
+import com.example.globalminusone.ui.panel.editor.clipboardClearStillMatches
+import com.example.globalminusone.ui.panel.editor.resolveCardDestructiveTarget
 
 class CardDestructiveActionsTest {
     private val child = ComponentItem(id = "child", type = ComponentType.NOTE_CARD)

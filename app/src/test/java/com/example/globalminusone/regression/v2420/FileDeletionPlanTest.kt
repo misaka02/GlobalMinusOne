@@ -1,8 +1,8 @@
 package com.example.globalminusone.regression.v2420
 
-import com.example.globalminusone.system.BrowserEntry
-import com.example.globalminusone.system.BrowserLocation
-import com.example.globalminusone.ui.panel.FileDeletionPlan
+import com.example.globalminusone.system.file.BrowserEntry
+import com.example.globalminusone.system.file.BrowserLocation
+import com.example.globalminusone.ui.panel.file.FileDeletionPlan
 import org.junit.Assert.*
 import org.junit.Test
 

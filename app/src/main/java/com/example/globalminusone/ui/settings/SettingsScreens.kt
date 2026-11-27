@@ -19,11 +19,13 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -37,17 +39,20 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.example.globalminusone.ui.AppIcons as Icons
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -73,6 +78,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.globalminusone.data.MinusOneRepository
+import com.example.globalminusone.data.resolvedModalMenuMs
 import com.example.globalminusone.service.GlobalAccessibilityService
 import com.example.globalminusone.service.OverlayService
 
@@ -88,31 +94,39 @@ fun GlobalMinusOneMainApp(
     onReturnToPanel: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val startScreen = navigationRequest?.screen ?: initialScreen ?: "MAIN"
+    val requestedStart = navigationRequest?.screen ?: initialScreen ?: "MAIN"
+    val startScreen = if (requestedStart == "CONFIG_IMPORT_PAGE") "CONFIG" else requestedStart
     var currentScreen by rememberSaveable { mutableStateOf(startScreen) }
     var lastConsumedNonce by rememberSaveable { mutableLongStateOf(navigationRequest?.nonce ?: 0L) }
     var forceExpandOcrToken by rememberSaveable { mutableLongStateOf(if (startScreen == "SCREEN_ASSISTANT") 1L else 0L) }
+    var autoLaunchPageImportToken by rememberSaveable { mutableLongStateOf(if (requestedStart == "CONFIG_IMPORT_PAGE") 1L else 0L) }
     var pendingTargetGroup by rememberSaveable { mutableStateOf("") }
     var pendingJumpNonce by rememberSaveable { mutableLongStateOf(0L) }
     LaunchedEffect(navigationRequest) {
         if (SettingsNavigationPolicy.shouldApply(navigationRequest, lastConsumedNonce)) {
             val request = navigationRequest!!
-            currentScreen = request.screen
-            pendingTargetGroup = if (request.screen == "SCREEN_ASSISTANT") "OCR" else ""
+            val target = if (request.screen == "CONFIG_IMPORT_PAGE") "CONFIG" else request.screen
+            currentScreen = target
+            pendingTargetGroup = if (target == "SCREEN_ASSISTANT") "OCR" else ""
             pendingJumpNonce += 1L
             lastConsumedNonce = request.nonce
-            if (request.screen == "SCREEN_ASSISTANT") {
+            if (target == "SCREEN_ASSISTANT") {
                 forceExpandOcrToken += 1L
+            } else if (request.screen == "CONFIG_IMPORT_PAGE") {
+                autoLaunchPageImportToken += 1L
             }
         }
     }
     LaunchedEffect(initialScreen) {
         if (navigationRequest == null && !initialScreen.isNullOrBlank()) {
-            currentScreen = initialScreen
-            if (initialScreen == "SCREEN_ASSISTANT") {
+            val target = if (initialScreen == "CONFIG_IMPORT_PAGE") "CONFIG" else initialScreen
+            currentScreen = target
+            if (target == "SCREEN_ASSISTANT") {
                 pendingTargetGroup = "OCR"
                 pendingJumpNonce += 1L
                 forceExpandOcrToken += 1L
+            } else if (initialScreen == "CONFIG_IMPORT_PAGE") {
+                autoLaunchPageImportToken += 1L
             }
         }
     }
@@ -139,15 +153,10 @@ fun GlobalMinusOneMainApp(
         currentScreen = if (currentScreen == "SB_SETTINGS") "OPERATION" else "MAIN"
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .safeDrawingPadding()
-    ) {
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).safeDrawingPadding()) {
         SettingsScreenTransition(
             targetScreen = currentScreen,
-            animMs = state.themeConfig.animationDurationMs.coerceIn(0, 800)
+            animMs = state.themeConfig.resolvedModalMenuMs()
         ) { screen ->
             when (screen) {
                 "MAIN" -> MainHomeScreen(
@@ -210,6 +219,7 @@ fun GlobalMinusOneMainApp(
                 )
                 "CONFIG" -> ConfigSettingsScreen(
                     repository = repository,
+                    autoLaunchPageImportToken = autoLaunchPageImportToken,
                     onBack = { currentScreen = "MAIN" }
                 )
                 "ABOUT" -> AboutSettingsScreen(
@@ -397,104 +407,46 @@ private fun MainHomeScreen(
             }
         } else {
 
-        // 状态大卡片 (layout/y.xml)
+        // 状态大卡片：开关独立控制，点击次按钮呼出面板，杜绝误触关闭服务
         item {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .heightIn(min = 112.dp)
-                    .clickable {
-                        if (!isServiceRunning) {
-                            if (!canDrawOverlays) {
-                                Toast.makeText(context, "请先授予悬浮窗权限", Toast.LENGTH_SHORT).show()
-                                val intent = Intent(
-                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                    Uri.parse("package:${context.packageName}")
-                                )
-                                context.startActivity(intent)
-                            } else {
-                                repository.updateTriggerConfig { it.copy(serviceEnabled = true) }
-                                OverlayService.start(context)
-                                Toast.makeText(context, "正在启动全局负一屏", Toast.LENGTH_SHORT).show()
-                            }
-                        } else {
-                            repository.updateTriggerConfig { it.copy(serviceEnabled = false) }
-                            OverlayService.stop(context)
-                            Toast.makeText(context, "已关闭全局负一屏", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isServiceRunning) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 20.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
-                        Text(
-                            text = when {
-                                isServiceRunning -> "服务运行中"
-                                !canDrawOverlays && triggerConfig.serviceEnabled -> "缺少悬浮窗权限"
-                                triggerConfig.serviceEnabled -> "服务未就绪 · 点击重试"
-                                else -> "服务已关闭"
-                            },
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = serviceContentColor
+            ServiceStatusHeroCard(
+                isServiceRunning = isServiceRunning,
+                serviceEnabled = triggerConfig.serviceEnabled,
+                canDrawOverlays = canDrawOverlays,
+                serviceContentColor = serviceContentColor,
+                onToggleService = { enabled ->
+                    if (enabled && !canDrawOverlays) {
+                        Toast.makeText(context, "请先授予悬浮窗权限", Toast.LENGTH_SHORT).show()
+                        val intent = Intent(
+                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:${context.packageName}")
                         )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = if (isServiceRunning) "点击卡片关闭 · 右侧按钮打开面板" else "点击卡片开启全局负一屏",
-                            fontSize = 14.sp,
-                            color = serviceContentColor
-                        )
-                        if (triggerConfig.serviceEnabled && !isServiceRunning) TextButton(onClick = {
-                            repository.updateTriggerConfig { it.copy(serviceEnabled = false) }
-                            OverlayService.stop(context)
-                        }) { Text("关闭主开关", color = serviceContentColor) }
+                        context.startActivity(intent)
+                    } else if (enabled) {
+                        repository.updateTriggerConfig { it.copy(serviceEnabled = true) }
+                        OverlayService.start(context)
+                        Toast.makeText(context, "正在启动全局负一屏", Toast.LENGTH_SHORT).show()
+                    } else {
+                        repository.updateTriggerConfig { it.copy(serviceEnabled = false) }
+                        OverlayService.stop(context)
+                        Toast.makeText(context, "已关闭全局负一屏", Toast.LENGTH_SHORT).show()
                     }
-
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .background(serviceContentColor.copy(alpha = 0.12f))
-                            .clickable {
-                                if (isServiceRunning) {
-                                    OverlayService.start(context, OverlayService.ACTION_TOGGLE_PANEL)
-                                } else {
-                                    if (!canDrawOverlays) {
-                                        Toast.makeText(context, "请先授予悬浮窗权限", Toast.LENGTH_SHORT).show()
-                                        val intent = Intent(
-                                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                            Uri.parse("package:${context.packageName}")
-                                        )
-                                        context.startActivity(intent)
-                                    } else {
-                                        repository.updateTriggerConfig { it.copy(serviceEnabled = true) }
-                                        OverlayService.start(context)
-                                        Toast.makeText(context, "正在启动全局负一屏", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.KeyboardArrowRight,
-                            contentDescription = "呼出预览",
-                            tint = serviceContentColor,
-                            modifier = Modifier.size(24.dp)
+                },
+                onPrimaryAction = {
+                    if (isServiceRunning) {
+                        OverlayService.start(context, OverlayService.ACTION_TOGGLE_PANEL)
+                    } else if (!canDrawOverlays) {
+                        Toast.makeText(context, "请先授予悬浮窗权限", Toast.LENGTH_SHORT).show()
+                        context.startActivity(
+                            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
                         )
+                    } else {
+                        repository.updateTriggerConfig { it.copy(serviceEnabled = true) }
+                        OverlayService.start(context)
+                        Toast.makeText(context, "正在启动全局负一屏", Toast.LENGTH_SHORT).show()
                     }
                 }
-            }
+            )
         }
 
         item {
@@ -533,83 +485,75 @@ private fun MainHomeScreen(
             }
         }
 
-        item { Spacer(modifier = Modifier.height(2.dp)) }
-
         item { PreferenceCategoryTitle(title = "日常设置") }
         item {
-            MainMenuItemRow(
-                icon = Icons.TouchApp,
-                title = "触发设置",
-                subtitle = "触发位置、区域、悬浮球等",
-                onClick = { onNavigate("OPERATION") }
-            )
-        }
-
-        item {
-            MainMenuItemRow(
-                icon = Icons.Palette,
-                title = "主题外观",
-                subtitle = "设置页深浅色、面板、卡片与动画",
-                onClick = { onNavigate("THEME") }
-            )
+            MainMenuGroupCard {
+                MainMenuItemRow(
+                    icon = Icons.TouchApp,
+                    title = "触发设置",
+                    subtitle = "触发位置、区域、悬浮球等",
+                    onClick = { onNavigate("OPERATION") }
+                )
+                MainMenuGroupDivider()
+                MainMenuItemRow(
+                    icon = Icons.Palette,
+                    title = "主题外观",
+                    subtitle = "设置页深浅色、面板、卡片与动画",
+                    onClick = { onNavigate("THEME") }
+                )
+            }
         }
 
         item { PreferenceCategoryTitle(title = "更多功能") }
-
         item {
-            MainMenuItemRow(
-                icon = IconAndroid,
-                title = "高级设置",
-                subtitle = "Root模式、黑名单、启动行为等",
-                onClick = { onNavigate("ADVANCE") }
-            )
-        }
-
-        item {
-            MainMenuItemRow(
-                icon = IconPuzzle,
-                title = "扩展功能",
-                subtitle = "验证码、护眼滤色与情景规则",
-                onClick = { onNavigate("EXTEND") }
-            )
-        }
-
-        item {
-            MainMenuItemRow(
-                icon = Icons.Rounded.Translate,
-                title = "全局识屏与翻译",
-                subtitle = "屏幕选字、原位翻译、提取小图、按需模型与小布联动",
-                onClick = { onNavigate("SCREEN_ASSISTANT") }
-            )
+            MainMenuGroupCard {
+                MainMenuItemRow(
+                    icon = IconAndroid,
+                    title = "高级设置",
+                    subtitle = "Root模式、黑名单、启动行为等",
+                    onClick = { onNavigate("ADVANCE") }
+                )
+                MainMenuGroupDivider()
+                MainMenuItemRow(
+                    icon = IconPuzzle,
+                    title = "扩展功能",
+                    subtitle = "验证码、护眼滤色与情景规则",
+                    onClick = { onNavigate("EXTEND") }
+                )
+                MainMenuGroupDivider()
+                MainMenuItemRow(
+                    icon = Icons.Rounded.Translate,
+                    title = "全局识屏与翻译",
+                    subtitle = "屏幕选字、原位翻译、提取小图、按需模型与小布联动",
+                    onClick = { onNavigate("SCREEN_ASSISTANT") }
+                )
+            }
         }
 
         item { PreferenceCategoryTitle(title = "配置与帮助") }
-
         item {
-            MainMenuItemRow(
-                icon = IconFloppy,
-                title = "配置管理",
-                subtitle = "备份、导入、删除配置文件等",
-                onClick = { onNavigate("CONFIG") }
-            )
-        }
-
-        item {
-            MainMenuItemRow(
-                icon = IconHelp,
-                title = "使用教程",
-                subtitle = "一些常见的使用问题",
-                onClick = { showTutorialDialog = true }
-            )
-        }
-
-        item {
-            MainMenuItemRow(
-                icon = IconInfo,
-                title = "关于",
-                subtitle = "项目来源、AI 开发说明、开发者与开源仓库",
-                onClick = { onNavigate("ABOUT") }
-            )
+            MainMenuGroupCard {
+                MainMenuItemRow(
+                    icon = IconFloppy,
+                    title = "配置管理",
+                    subtitle = "备份、导入、删除配置文件等",
+                    onClick = { onNavigate("CONFIG") }
+                )
+                MainMenuGroupDivider()
+                MainMenuItemRow(
+                    icon = IconHelp,
+                    title = "使用教程",
+                    subtitle = "一些常见的使用问题",
+                    onClick = { showTutorialDialog = true }
+                )
+                MainMenuGroupDivider()
+                MainMenuItemRow(
+                    icon = IconInfo,
+                    title = "关于",
+                    subtitle = "项目来源、AI 开发说明、开发者与开源仓库",
+                    onClick = { onNavigate("ABOUT") }
+                )
+            }
         }
         }
     }
@@ -618,70 +562,6 @@ private fun MainHomeScreen(
         TutorialDialog(onDismiss = { showTutorialDialog = false })
     }
 }
-
-/**
- * 主菜单单行列表项（左侧灰色图标 + 标题与副标题 + 右侧 >）
- */
-@Composable
-private fun MainMenuItemRow(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 3.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .heightIn(min = 80.dp)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = title,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(24.dp)
-        )
-
-        Spacer(modifier = Modifier.width(22.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Normal,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = subtitle,
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        Icon(
-            imageVector = Icons.KeyboardArrowRight,
-            contentDescription = "进入",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(22.dp)
-        )
-    }
-}
-
-// ======================================================================================
-// 2. 触发设置页面 ("OPERATION")
-// ======================================================================================
-
-
-
-// ======================================================================================
-// 3. 悬浮球设置页面 ("SB_SETTINGS")
-// ======================================================================================
 
 
 
@@ -717,7 +597,6 @@ private fun MainMenuItemRow(
 
 
 data class AppItemInfo(val packageName: String, val label: String)
-
 
 
 

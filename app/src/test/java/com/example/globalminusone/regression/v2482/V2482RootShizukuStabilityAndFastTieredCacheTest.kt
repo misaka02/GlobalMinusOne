@@ -1,7 +1,7 @@
 package com.example.globalminusone.regression.v2482
 
 import com.example.globalminusone.screenassistant.ScreenCaptureHub
-import com.example.globalminusone.system.boundedRootLine
+import com.example.globalminusone.system.privilege.boundedRootLine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

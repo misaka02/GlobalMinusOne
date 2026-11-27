@@ -6,8 +6,10 @@ import android.os.Build
 import android.provider.Settings
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
+import android.widget.Toast
 import com.example.globalminusone.MainActivity
 import com.example.globalminusone.R
+import com.example.globalminusone.data.MinusOneRepository
 
 /**
  * 下拉通知栏/控制中心快捷磁贴服务。
@@ -18,16 +20,22 @@ class MinusOneTileService : TileService() {
     override fun onStartListening() {
         super.onStartListening()
         val tile = qsTile ?: return
-        tile.state = if (Settings.canDrawOverlays(this)) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+        val enabled = Settings.canDrawOverlays(this) && MinusOneRepository.getInstance(this).state.value.triggerConfig.serviceEnabled
+        tile.state = if (enabled) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         tile.label = getString(R.string.tile_label)
         tile.updateTile()
     }
 
     override fun onClick() {
         super.onClick()
-        if (Settings.canDrawOverlays(this)) {
+        val overlayGranted = Settings.canDrawOverlays(this)
+        val serviceEnabled = MinusOneRepository.getInstance(this).state.value.triggerConfig.serviceEnabled
+        if (overlayGranted && serviceEnabled) {
             OverlayService.start(this, OverlayService.ACTION_TOGGLE_PANEL)
         } else {
+            if (overlayGranted) {
+                Toast.makeText(this, "请先开启全局负一屏服务", Toast.LENGTH_SHORT).show()
+            }
             val intent = Intent(this, MainActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }

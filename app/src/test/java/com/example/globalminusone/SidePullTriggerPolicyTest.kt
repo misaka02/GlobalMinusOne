@@ -1,8 +1,8 @@
 package com.example.globalminusone.regression
 
 import com.example.globalminusone.data.TriggerPosition
-import com.example.globalminusone.service.SidePullRecognition
-import com.example.globalminusone.service.SidePullTriggerPolicy
+import com.example.globalminusone.service.overlay.SidePullRecognition
+import com.example.globalminusone.service.overlay.SidePullTriggerPolicy
 import org.junit.Assert.*
 import org.junit.Test
 

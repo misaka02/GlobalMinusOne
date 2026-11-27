@@ -9,7 +9,6 @@ import android.os.Parcel;
 import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
 import android.view.WindowManager;
-
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.DataOutputStream;
@@ -34,7 +33,6 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
-
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
@@ -82,24 +80,14 @@ public final class SystemViewCaptureHook implements IXposedHookLoadPackage {
     private static final AtomicBoolean IN_FLIGHT = new AtomicBoolean(false);
 
     private static final ExecutorService WORKER_POOL = new ThreadPoolExecutor(
-            0,
-            2,
-            15L,
-            TimeUnit.SECONDS,
-            new ArrayBlockingQueue<>(8),
-            new NamedDaemonThreadFactory("gmo-view-worker"),
-            new ThreadPoolExecutor.AbortPolicy()
-    );
-
+            0, 2, 15L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(8),
+            new NamedDaemonThreadFactory("gmo-view-worker"), new ThreadPoolExecutor.AbortPolicy());
     private static final ExecutorService PIPE_READER_POOL = new ThreadPoolExecutor(
-            0,
-            3,
-            20L,
-            TimeUnit.SECONDS,
-            new SynchronousQueue<>(),
-            new NamedDaemonThreadFactory("gmo-view-pipe"),
-            new ThreadPoolExecutor.AbortPolicy()
-    );
+            0, 3, 20L, TimeUnit.SECONDS, new SynchronousQueue<>(),
+            new NamedDaemonThreadFactory("gmo-view-pipe"), new ThreadPoolExecutor.AbortPolicy());
+    private static final ExecutorService COMMAND_INVOKE_POOL = new ThreadPoolExecutor(
+            0, 4, 20L, TimeUnit.SECONDS, new SynchronousQueue<>(),
+            new NamedDaemonThreadFactory("gmo-view-exec"), new ThreadPoolExecutor.AbortPolicy());
 
     private volatile int cachedAppUid = -1;
     private volatile long cachedAppUidAtMs = 0L;
@@ -342,21 +330,26 @@ public final class SystemViewCaptureHook implements IXposedHookLoadPackage {
     ) {
         long identity = Binder.clearCallingIdentity();
         try {
-            List<WindowTarget> targets = snapshotVisibleAppWindows(wms, targetPkg, 2);
-            if (targets.isEmpty()) {
-                targets = snapshotVisibleAppWindows(wms, null, 1);
-            }
+            boolean hasTargetPkg = targetPkg != null && !targetPkg.isEmpty();
+            List<WindowTarget> targets = snapshotVisibleAppWindows(
+                    wms, hasTargetPkg ? targetPkg : null, hasTargetPkg ? 2 : 1);
             if (targets.isEmpty()) {
                 writeCaptureErrorAndClose(outPfd, STATUS_NO_WINDOW, "目标窗口已不可见");
                 outPfd = null;
                 return;
             }
-            WindowTarget primaryTarget = targets.get(0);
             List<CapturedEntry> entries = new ArrayList<>(descriptors.size());
             long startNs = System.nanoTime();
             int totalPngBytes = 0;
+            boolean[] timedOut = new boolean[targets.size()];
 
             for (String desc : descriptors) {
+                boolean anyAlive = false;
+                for (boolean t : timedOut) { if (!t) { anyAlive = true; break; } }
+                if (!anyAlive) {
+                    entries.add(new CapturedEntry(desc, 2, "目标窗口响应超时，已跳过", new byte[0]));
+                    continue;
+                }
                 long elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
                 long remainingMs = CAPTURE_TOTAL_BUDGET_MS - elapsedMs;
                 if (remainingMs < 150L) {
@@ -370,23 +363,13 @@ public final class SystemViewCaptureHook implements IXposedHookLoadPackage {
                 long callTimeout = Math.min(CAPTURE_PER_VIEW_TIMEOUT_MS, remainingMs);
                 int maxPerItem = Math.min(MAX_PNG_BYTES, MAX_BATCH_BYTES - totalPngBytes);
 
-                RemoteExecResult res = invokeRemoteExecuteCommand(
-                        primaryTarget,
-                        "CAPTURE",
-                        desc,
-                        callTimeout,
-                        maxPerItem,
-                        false
-                );
-                if (res.bytes.length == 0 && targets.size() > 1) {
-                    res = invokeRemoteExecuteCommand(
-                            targets.get(1),
-                            "CAPTURE",
-                            desc,
-                            Math.min(callTimeout, 500L),
-                            maxPerItem,
-                            false
-                    );
+                RemoteExecResult res = new RemoteExecResult(new byte[0], "目标视图未返回图像", false);
+                for (int i = 0; i < targets.size(); i++) {
+                    if (timedOut[i]) continue;
+                    long tOut = i == 0 ? callTimeout : Math.min(callTimeout, 500L);
+                    res = invokeRemoteExecuteCommand(targets.get(i), "CAPTURE", desc, tOut, maxPerItem, false);
+                    if (res.timedOut) timedOut[i] = true;
+                    if (res.bytes.length > 0) break;
                 }
                 if (res.bytes.length > 0 && looksLikePng(res.bytes)) {
                     totalPngBytes += res.bytes.length;
@@ -521,10 +504,12 @@ public final class SystemViewCaptureHook implements IXposedHookLoadPackage {
     private static final class RemoteExecResult {
         final byte[] bytes;
         final String error;
+        final boolean timedOut;
 
-        RemoteExecResult(byte[] bytes, String error) {
+        RemoteExecResult(byte[] bytes, String error, boolean timedOut) {
             this.bytes = bytes;
             this.error = error;
+            this.timedOut = timedOut;
         }
     }
 
@@ -540,35 +525,35 @@ public final class SystemViewCaptureHook implements IXposedHookLoadPackage {
         try {
             pipe = ParcelFileDescriptor.createPipe();
         } catch (IOException io) {
-            return new RemoteExecResult(new byte[0], "创建内部管道失败");
+            return new RemoteExecResult(new byte[0], "创建内部管道失败", false);
         }
         final ParcelFileDescriptor readSide = pipe[0];
         final ParcelFileDescriptor writeSide = pipe[1];
-        Future<byte[]> fut = null;
+        Future<Void> execFut = null;
+        Future<byte[]> readFut = null;
         try {
-            fut = PIPE_READER_POOL.submit(() -> readBoundedPipe(readSide, maxBytes, stopOnDumpDone));
-            try {
-                target.executeCommandMethod.invoke(target.client, cmd, arg, writeSide);
-            } finally {
-                // Close server-side write FD right after Binder transfer so target EOF propagates.
-                closeQuietly(writeSide);
-            }
-            byte[] payload = fut.get(timeoutMs, TimeUnit.MILLISECONDS);
-            return new RemoteExecResult(payload != null ? payload : new byte[0], "");
+            execFut = COMMAND_INVOKE_POOL.submit(() -> {
+                try { target.executeCommandMethod.invoke(target.client, cmd, arg, writeSide); }
+                finally { closeQuietly(writeSide); }
+                return null;
+            });
+            readFut = PIPE_READER_POOL.submit(() -> readBoundedPipe(readSide, maxBytes, stopOnDumpDone));
+            byte[] payload = readFut.get(timeoutMs, TimeUnit.MILLISECONDS);
+            if ((payload == null || payload.length == 0) && execFut.isDone()) execFut.get(50L, TimeUnit.MILLISECONDS);
+            return new RemoteExecResult(payload != null ? payload : new byte[0], "", false);
         } catch (TimeoutException te) {
-            if (fut != null) fut.cancel(true);
-            closeQuietly(readSide);
-            return new RemoteExecResult(new byte[0], cmd + " 超时 (" + timeoutMs + "ms)");
-        } catch (Throwable err) {
-            if (fut != null) fut.cancel(true);
-            Throwable rootCause = err.getCause() != null ? err.getCause() : err;
-            String msg = rootCause.getMessage();
-            return new RemoteExecResult(new byte[0],
-                    msg != null && !msg.isEmpty() ? msg : rootCause.getClass().getSimpleName());
-        } finally {
+            if (execFut != null) execFut.cancel(true);
+            if (readFut != null) readFut.cancel(true);
             closeQuietly(writeSide);
             closeQuietly(readSide);
-        }
+            return new RemoteExecResult(new byte[0], cmd + " 超时 (" + timeoutMs + "ms)", true);
+        } catch (Throwable err) {
+            if (execFut != null) execFut.cancel(true);
+            if (readFut != null) readFut.cancel(true);
+            Throwable root = err.getCause() != null ? err.getCause() : err;
+            String msg = root.getMessage();
+            return new RemoteExecResult(new byte[0], msg != null && !msg.isEmpty() ? msg : root.getClass().getSimpleName(), false);
+        } finally { closeQuietly(writeSide); closeQuietly(readSide); }
     }
 
     private static byte[] readBoundedPipe(

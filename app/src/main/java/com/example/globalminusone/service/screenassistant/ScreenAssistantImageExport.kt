@@ -13,7 +13,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.example.globalminusone.screenassistant.SubImageResult
-import com.example.globalminusone.system.ImageClipboard
+import com.example.globalminusone.system.media.ImageClipboard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File

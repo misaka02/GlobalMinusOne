@@ -3,9 +3,9 @@ package com.example.globalminusone.regression.v2449
 import com.example.globalminusone.data.ComponentItem
 import com.example.globalminusone.data.ComponentType
 import com.example.globalminusone.data.ContainerLayoutType
-import com.example.globalminusone.data.GRID_SPAN_FULL_ROW
-import com.example.globalminusone.data.arrangePageGridComponents
-import com.example.globalminusone.data.componentDisplayHeightDp
+import com.example.globalminusone.data.policy.GRID_SPAN_FULL_ROW
+import com.example.globalminusone.data.policy.arrangePageGridComponents
+import com.example.globalminusone.data.policy.componentDisplayHeightDp
 import com.example.globalminusone.screenassistant.ScreenTextBlock
 import com.example.globalminusone.screenassistant.ScreenTextInpainter
 import com.example.globalminusone.screenassistant.TextCharSpan

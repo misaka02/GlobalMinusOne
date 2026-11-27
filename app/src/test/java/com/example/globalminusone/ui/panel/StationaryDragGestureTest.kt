@@ -32,6 +32,8 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.ui.panel.gesture.PanelGestureOwnership
+import com.example.globalminusone.ui.panel.editor.detectStationaryDragGestures
 
 /** Runs the production detector. The fake supplies events/passes and a virtual timeout only;
  * it contains no hold, movement-budget, drag or ownership decisions. */

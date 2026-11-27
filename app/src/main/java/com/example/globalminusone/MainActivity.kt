@@ -28,12 +28,12 @@ class MainActivity : ComponentActivity() {
     // Activity receives these only after the focused view declines the key.
     // Use public callbacks rather than androidx.core's restricted dispatcher.
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean =
-        com.example.globalminusone.service.isAndroid12CallFallback(
+        com.example.globalminusone.service.overlay.isAndroid12CallFallback(
             android.os.Build.VERSION.SDK_INT, keyCode, event.action
         ) || super.onKeyDown(keyCode, event)
 
     override fun onKeyUp(keyCode: Int, event: android.view.KeyEvent): Boolean =
-        com.example.globalminusone.service.isAndroid12CallFallback(
+        com.example.globalminusone.service.overlay.isAndroid12CallFallback(
             android.os.Build.VERSION.SDK_INT, keyCode, event.action
         ) || super.onKeyUp(keyCode, event)
 

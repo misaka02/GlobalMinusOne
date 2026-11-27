@@ -3,9 +3,9 @@ package com.example.globalminusone
 import com.example.globalminusone.data.FileBrowserConfig
 import com.example.globalminusone.data.FileBrowserPolicy
 import com.example.globalminusone.data.FileBrowserSortOrder
-import com.example.globalminusone.system.BrowserEntry
-import com.example.globalminusone.system.BrowserLocation
-import com.example.globalminusone.system.sortBrowserEntries
+import com.example.globalminusone.system.file.BrowserEntry
+import com.example.globalminusone.system.file.BrowserLocation
+import com.example.globalminusone.system.file.sortBrowserEntries
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

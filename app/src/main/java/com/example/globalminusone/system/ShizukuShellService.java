@@ -9,8 +9,10 @@ import android.os.RemoteException;
 import androidx.annotation.Keep;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Shizuku UserService (ADB shell UID) exclusively for explicit user-configured Shell Command cards.
@@ -65,35 +67,66 @@ public final class ShizukuShellService extends Binder {
             process = pb.redirectErrorStream(true).start();
 
             ByteArrayOutputStream output = new ByteArrayOutputStream();
-            boolean truncated = false;
-            try (InputStream in = process.getInputStream()) {
-                byte[] buffer = new byte[4096];
-                int count;
-                while ((count = in.read(buffer)) != -1) {
-                    int remaining = MAX_OUTPUT_BYTES - output.size();
-                    if (remaining <= 0) {
-                        truncated = true;
-                        break;
+            final boolean[] truncated = new boolean[] { false };
+            final AtomicBoolean closingStdout = new AtomicBoolean(false);
+            final IOException[] readError = new IOException[] { null };
+            final InputStream stdout = process.getInputStream();
+            Thread reader = new Thread(() -> {
+                try (InputStream in = stdout) {
+                    byte[] buffer = new byte[4096];
+                    int count;
+                    while ((count = in.read(buffer)) != -1) {
+                        synchronized (output) {
+                            int remaining = MAX_OUTPUT_BYTES - output.size();
+                            if (remaining <= 0) {
+                                truncated[0] = true;
+                                break;
+                            }
+                            int toWrite = Math.min(count, remaining);
+                            output.write(buffer, 0, toWrite);
+                            if (toWrite < count) {
+                                truncated[0] = true;
+                                break;
+                            }
+                        }
                     }
-                    int toWrite = Math.min(count, remaining);
-                    output.write(buffer, 0, toWrite);
-                    if (toWrite < count) {
-                        truncated = true;
-                        break;
+                } catch (IOException error) {
+                    if (!closingStdout.get()) {
+                        readError[0] = error;
                     }
                 }
-            }
+            }, "gmo-shizuku-shell-read");
+            reader.setDaemon(true);
+            reader.start();
 
             boolean finished = process.waitFor(timeoutSec + 2L, TimeUnit.SECONDS);
             boolean timedOut = !finished;
             if (timedOut) {
                 process.destroyForcibly();
             }
+            reader.join(500L);
+            if (reader.isAlive()) {
+                truncated[0] = true;
+                closingStdout.set(true);
+                reader.interrupt();
+                try {
+                    stdout.close();
+                } catch (Exception ignored) {
+                }
+                reader.join(200L);
+            }
+            if (!timedOut && !truncated[0] && readError[0] != null) {
+                throw readError[0];
+            }
             int exitCode = timedOut ? -1 : process.exitValue();
             if (exitCode == 124 || exitCode == 137) {
                 timedOut = true;
             }
-            String text = output.toString("UTF-8") + (truncated ? "\n（输出已截断）" : "");
+            final String capturedText;
+            synchronized (output) {
+                capturedText = output.toString("UTF-8");
+            }
+            String text = capturedText + (truncated[0] ? "\n（输出已截断）" : "");
             reply.writeNoException();
             reply.writeInt(timedOut ? 1 : 0);
             reply.writeInt(exitCode);

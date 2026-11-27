@@ -1,7 +1,7 @@
 package com.example.globalminusone
 
-import com.example.globalminusone.system.BrowserLocation
-import com.example.globalminusone.system.normalizePublicStoragePath
+import com.example.globalminusone.system.file.BrowserLocation
+import com.example.globalminusone.system.file.normalizePublicStoragePath
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test

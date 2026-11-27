@@ -4,6 +4,13 @@ import android.content.SharedPreferences
 import com.example.globalminusone.MemoryPreferences
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.operations.ComponentPlacementOperations
+import com.example.globalminusone.data.operations.ComponentRemovalOperations
+import com.example.globalminusone.data.operations.ComponentTransferOperations
+import com.example.globalminusone.data.storage.ConfigurationCodec
+import com.example.globalminusone.data.policy.containerGridChildBounds
+import com.example.globalminusone.data.policy.containerRowGapDp
+import com.example.globalminusone.data.operations.findComponent
 
 class ComponentTreeOperationsTest {
     @Test fun initialPageGeometryPreservesLayoutSpecificRulesAndLazyNextY() {

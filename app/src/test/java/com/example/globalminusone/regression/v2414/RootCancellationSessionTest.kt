@@ -5,6 +5,13 @@ import kotlinx.coroutines.*
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.system.privilege.PrivilegeAction
+import com.example.globalminusone.system.privilege.RootExecutor
+import com.example.globalminusone.system.privilege.RootProcessOutcome
+import com.example.globalminusone.system.privilege.RootProcessRequest
+import com.example.globalminusone.system.privilege.RootReadRequest
+import com.example.globalminusone.system.privilege.RootStatus
+import com.example.globalminusone.system.privilege.UserRootSession
 
 class RootCancellationSessionTest {
     @After fun reset() { UserRootSession.resetForTests() }

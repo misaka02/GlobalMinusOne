@@ -39,7 +39,7 @@ import com.example.globalminusone.screenassistant.OcrMirrorStore
 import com.example.globalminusone.screenassistant.OcrModelPack
 import com.example.globalminusone.screenassistant.OcrModelStore
 import com.example.globalminusone.screenassistant.ScreenCaptureHub
-import com.example.globalminusone.system.UserRootSession
+import com.example.globalminusone.system.privilege.UserRootSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

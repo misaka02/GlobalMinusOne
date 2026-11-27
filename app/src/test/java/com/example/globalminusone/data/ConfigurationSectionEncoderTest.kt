@@ -3,6 +3,10 @@ package com.example.globalminusone.data
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.storage.ConfigurationCodec
+import com.example.globalminusone.data.storage.ConfigurationSectionCodec
+import com.example.globalminusone.data.storage.ConfigurationSectionEncoder
+import com.example.globalminusone.data.storage.DefaultConfigurationSectionCodec
 
 class ConfigurationSectionEncoderTest {
     @Test fun completeV5MatchesExistingBytesAndValidatedRoundTripForEmptyAndPopulatedSections() {

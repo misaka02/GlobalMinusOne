@@ -62,6 +62,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import com.example.globalminusone.ui.AppIcons as Icons
 import com.example.globalminusone.ui.motion.overlayDialogMotion
 import kotlin.math.roundToInt
+import com.example.globalminusone.ui.panel.file.FLOATING_WINDOW_MIN_HEIGHT_DP
+import com.example.globalminusone.ui.panel.file.fileBrowserNarrowChrome
+import com.example.globalminusone.ui.panel.file.floatingWindowPresentationBounds
+import com.example.globalminusone.ui.panel.file.opaqueFilePalette
+import com.example.globalminusone.ui.panel.file.visibleFileWindowHeight
+import com.example.globalminusone.ui.panel.file.workspaceWindowBounds
 
 /** Shared by Compose file/browser windows and the native embedded-app window frame. */
 internal const val FLOATING_WINDOW_CORNER_DP = 14
@@ -311,4 +317,3 @@ internal fun FloatingPanelWindow(
         }
     }
 }
-

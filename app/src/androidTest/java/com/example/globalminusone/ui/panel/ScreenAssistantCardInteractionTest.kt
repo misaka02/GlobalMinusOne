@@ -15,6 +15,9 @@ import com.example.globalminusone.data.ComponentType
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
+import com.example.globalminusone.ui.panel.cards.LocalIsEditMode
+import com.example.globalminusone.ui.panel.cards.SystemActionCard
+import com.example.globalminusone.ui.panel.cards.SystemActionCardCommands
 
 class ScreenAssistantCardInteractionTest {
     @get:Rule val compose = createComposeRule()

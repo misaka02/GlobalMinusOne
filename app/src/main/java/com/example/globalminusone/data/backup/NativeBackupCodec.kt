@@ -13,6 +13,22 @@ import java.nio.charset.CodingErrorAction
 import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import com.example.globalminusone.data.BoundWidgetInfo
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.GlobalMinusOneState
+import com.example.globalminusone.data.MAX_CARD_SPACING_DP
+import com.example.globalminusone.data.MAX_GRID_GAP_DP
+import com.example.globalminusone.data.MAX_ICON_LABEL_GAP_DP
+import com.example.globalminusone.data.MIN_CARD_SPACING_DP
+import com.example.globalminusone.data.MIN_GRID_GAP_DP
+import com.example.globalminusone.data.MIN_ICON_LABEL_GAP_DP
+import com.example.globalminusone.data.ROW_GAP_INHERIT
+import com.example.globalminusone.data.operations.checkConfigurationJsonEnvelope
+import com.example.globalminusone.data.policy.containerIconSizeDp
+import com.example.globalminusone.data.policy.containerRowGapDp
+import com.example.globalminusone.data.operations.flattenComponents
+import com.example.globalminusone.data.migrateLegacyRowGapSentinels
+import com.example.globalminusone.data.operations.validateComponentTrees
 
 @Serializable
 data class BackupPreference(val type: String, val value: String = "", val values: List<String> = emptyList())
@@ -26,7 +42,8 @@ data class NativeBackupPayload(
     val assets: Map<String, String> = emptyMap(),
     val warnings: List<String> = emptyList(),
     val installationId: String = "",
-    val configurationOnly: Boolean = false
+    val configurationOnly: Boolean = false,
+    val exportSummary: BackupSourceSummary? = null
 )
 
 @Serializable
@@ -81,6 +98,13 @@ object NativeBackupCodec {
 
     fun read(input: InputStream): DecodedNativeBackup = readArchive(readBounded(input, MAX_ARCHIVE_BYTES))
 
+    private fun decodeStrictUtf8(bytes: ByteArray, offset: Int = 0, length: Int = bytes.size - offset): String =
+        Charsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(bytes, offset, length))
+            .toString()
+
     private fun readArchive(archive: ByteArray): DecodedNativeBackup {
         // Streaming ZIP traversal accepts complete local entries even if the central directory
         // or its tail was lost. Require the same complete archive structure as Panels imports
@@ -98,13 +122,13 @@ object NativeBackupCodec {
             val limit = when (name) { MANIFEST -> 128_000; PAYLOAD -> 8_000_000; else -> MAX_ASSET_BYTES }
             require(entry.uncompressedSize in 0..limit.toLong()) { "备份内容超过安全大小限制" }
         }
-        val manifestRaw = requireNotNull(entries.remove(MANIFEST)) { "缺少备份清单" }.toString(Charsets.UTF_8)
+        val manifestRaw = decodeStrictUtf8(requireNotNull(entries.remove(MANIFEST)) { "缺少备份清单" })
         checkConfigurationJsonEnvelope(manifestRaw)
         val manifest = json.decodeFromString<BackupManifest>(manifestRaw)
         require(manifest.format == "GlobalMinusOne" && manifest.version == 1) { "不支持此备份版本" }
         require(manifest.hashes.keys == entries.keys && PAYLOAD in entries) { "备份文件缺失或存在多余文件" }
         entries.forEach { (name, bytes) -> require(sha256(bytes) == manifest.hashes[name]) { "备份校验失败：$name" } }
-        val raw = requireNotNull(entries.remove(PAYLOAD)).toString(Charsets.UTF_8)
+        val raw = decodeStrictUtf8(requireNotNull(entries.remove(PAYLOAD)))
         checkConfigurationJsonEnvelope(raw)
         val decodedPayload = json.decodeFromString<NativeBackupPayload>(raw)
         val hasSchemaVersion = runCatching {
@@ -125,9 +149,7 @@ object NativeBackupCodec {
         val first = (start until bytes.size).firstOrNull { when (bytes[it].toInt()) { 9, 10, 13, 32 -> false; else -> true } }
         if (first == null || bytes[first] != '{'.code.toByte()) return readArchive(bytes)
         require(bytes.size <= 8_000_000) { "旧配置文件过大" }
-        val decoder = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
-            .onUnmappableCharacter(CodingErrorAction.REPORT)
-        val raw = decoder.decode(ByteBuffer.wrap(bytes, start, bytes.size - start)).toString()
+        val raw = decodeStrictUtf8(bytes, start, bytes.size - start)
         checkConfigurationJsonEnvelope(raw)
         val hasSchemaVersion = runCatching {
             json.parseToJsonElement(raw).jsonObject.containsKey("schemaVersion")
@@ -142,11 +164,19 @@ object NativeBackupCodec {
 
     fun validateState(state: GlobalMinusOneState, snapshot: Boolean = false) {
         require(state.pages.isNotEmpty() && state.pages.size <= 1000 && state.currentPageIndex in state.pages.indices) { "页面配置无效" }
+        require(state.pages.any { it.subPanelId.isEmpty() }) { "主面板至少需保留一页" }
+        require(state.subPanels.size <= 64 && state.subPanels.all { it.id.isNotBlank() } &&
+            state.subPanels.map { it.id }.distinct().size == state.subPanels.size) { "子面板配置无效" }
+        val validSubPanelIds = state.subPanels.map { it.id }.toSet()
+        require(state.pages.all { it.subPanelId.isEmpty() || it.subPanelId in validSubPanelIds }) { "子面板页面引用无效" }
+        require(state.subPanelLibrary.size <= 64 && state.subPanelLibrary.all { it.id.isNotBlank() } &&
+            state.subPanelLibrary.map { it.id }.distinct().size == state.subPanelLibrary.size) { "子面板仓库无效" }
+        state.subPanelLibrary.forEach { validateComponentTrees(it.pages) }
         require(state.pages.all { it.id.isNotBlank() } && state.pages.map { it.id }.distinct().size == state.pages.size) { "页面 ID 无效" }
         require(state.advancedConfig.gridColumns in 8..64 && state.triggerConfig.minimumSwipeDistanceDp in 16..160) { "网格或触发设置无效" }
         require(state.fileBrowserConfig.roots.all { it.uri.isNotBlank() } && state.fileBrowserConfig.roots.map { it.uri }.distinct().size == state.fileBrowserConfig.roots.size) { "文件目录配置无效" }
         require(state.pages.all {
-            it.gridColumnCount in 0..12 && it.gridIconSizeDp in 0..192 &&
+            it.gridColumnCount in 0..12 && it.gridRowCount in 0..24 && it.gridIconSizeDp in 0..192 &&
                 it.gridItemGapDp in MIN_GRID_GAP_DP..MAX_GRID_GAP_DP &&
                 (it.gridRowGapDp == ROW_GAP_INHERIT || it.gridRowGapDp in MIN_GRID_GAP_DP..MAX_GRID_GAP_DP)
         }) { "页面网格参数无效" }
@@ -231,6 +261,8 @@ object NativeBackupCodec {
             photoCubeUris = item.photoCubeUris.map(transform), containerComponents = components(item.containerComponents)) }
         return state.copy(themeConfig = state.themeConfig.copy(bgImageUri = transform(state.themeConfig.bgImageUri)),
             pages = state.pages.map { it.copy(bgImageUri = transform(it.bgImageUri), components = components(it.components)) },
+            subPanelLibrary = state.subPanelLibrary.map { tpl -> tpl.copy(pages = tpl.pages.map {
+                it.copy(bgImageUri = transform(it.bgImageUri), components = components(it.components)) }) },
             appAppearanceOverrides = state.appAppearanceOverrides.mapValues { (_, value) -> value.copy(iconUri = transform(value.iconUri)) },
             cards = state.cards.map { it.copy(customImageUri = it.customImageUri?.let(transform)) },
             profiles = state.profiles.map { profile -> if (profile.stateJson.isBlank()) profile else profile.copy(

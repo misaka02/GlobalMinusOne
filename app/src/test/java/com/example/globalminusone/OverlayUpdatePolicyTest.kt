@@ -1,9 +1,10 @@
 package com.example.globalminusone
 
 import com.example.globalminusone.data.*
-import com.example.globalminusone.service.overlayUpdates
+import com.example.globalminusone.service.overlay.overlayUpdates
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.GlobalMinusOneState
 
 class OverlayUpdatePolicyTest {
     @Test fun editingCardsAndWindowPositionDoesNotRebuildSystemWindows() {

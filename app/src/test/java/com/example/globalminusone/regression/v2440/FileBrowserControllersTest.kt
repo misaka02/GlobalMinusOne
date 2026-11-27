@@ -1,12 +1,12 @@
 package com.example.globalminusone.regression.v2440
 
-import com.example.globalminusone.system.BrowserEntry
-import com.example.globalminusone.system.BrowserLocation
-import com.example.globalminusone.system.FileSearchResult
-import com.example.globalminusone.ui.panel.FileBrowserDirectoryState
-import com.example.globalminusone.ui.panel.FileBrowserNavigationState
-import com.example.globalminusone.ui.panel.FileInspectorState
-import com.example.globalminusone.ui.panel.FileBrowserSearchController
+import com.example.globalminusone.system.file.BrowserEntry
+import com.example.globalminusone.system.file.BrowserLocation
+import com.example.globalminusone.system.file.FileSearchResult
+import com.example.globalminusone.ui.panel.file.FileBrowserDirectoryState
+import com.example.globalminusone.ui.panel.file.FileBrowserNavigationState
+import com.example.globalminusone.ui.panel.file.FileInspectorState
+import com.example.globalminusone.ui.panel.file.FileBrowserSearchController
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable

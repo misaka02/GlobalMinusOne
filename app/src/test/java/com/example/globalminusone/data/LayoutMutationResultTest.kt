@@ -4,6 +4,7 @@ import android.content.SharedPreferences
 import com.example.globalminusone.MemoryPreferences
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.operations.findComponent
 
 class LayoutMutationResultTest {
     private class FaultPreferences(private val delegate: MemoryPreferences = MemoryPreferences()) : SharedPreferences by delegate {

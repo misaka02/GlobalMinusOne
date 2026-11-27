@@ -204,7 +204,7 @@ internal class ScreenAssistantGestureController(
         if (!isCurrent()) return false
         scaleGestureDetector.onTouchEvent(event)
         val action = event.actionMasked
-        if (event.pointerCount >= 2) {
+        if (event.pointerCount >= 2 && action != MotionEvent.ACTION_CANCEL) {
             draggingSelect = false; draggingHandle = 0; draggingSubHandle = 0; draggingSubIndex = -1
             draggingSnapStroke = false; snapStrokePoints.clear(); snapViewPoints.clear()
             draggingPan = true

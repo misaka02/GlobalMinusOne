@@ -1,7 +1,7 @@
 package com.example.globalminusone.regression.v2413
 
-import com.example.globalminusone.service.ApplicationWindowMode
-import com.example.globalminusone.service.ApplicationWindowPlacement
+import com.example.globalminusone.service.embedded.ApplicationWindowMode
+import com.example.globalminusone.service.embedded.ApplicationWindowPlacement
 import org.junit.Assert.*
 import org.junit.Test
 

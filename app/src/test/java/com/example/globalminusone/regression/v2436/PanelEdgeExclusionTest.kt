@@ -1,6 +1,6 @@
 package com.example.globalminusone.regression.v2436
 
-import com.example.globalminusone.service.triggerEdgeExclusions
+import com.example.globalminusone.service.overlay.triggerEdgeExclusions
 import org.junit.Assert.*
 import org.junit.Test
 

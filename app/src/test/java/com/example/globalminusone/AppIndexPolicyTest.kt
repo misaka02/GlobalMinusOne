@@ -3,6 +3,13 @@ package com.example.globalminusone
 import com.example.globalminusone.ui.panel.*
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.ui.panel.cards.AppViewportItem
+import com.example.globalminusone.ui.panel.cards.appGroupOffsets
+import com.example.globalminusone.ui.panel.cards.appIndexAtPosition
+import com.example.globalminusone.ui.panel.cards.appIndexLetter
+import com.example.globalminusone.ui.panel.cards.filterAppGroups
+import com.example.globalminusone.ui.panel.cards.groupAppsByLetter
+import com.example.globalminusone.ui.panel.cards.visibleAppGroupIndex
 
 class AppIndexPolicyTest {
     @Test fun labelsNormalizeAccentsAndKeepNonLettersInHash() {

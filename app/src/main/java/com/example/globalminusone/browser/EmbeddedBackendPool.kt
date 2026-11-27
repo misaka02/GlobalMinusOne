@@ -7,7 +7,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
-import com.example.globalminusone.system.UserRootSession
+import com.example.globalminusone.system.privilege.UserRootSession
 import com.topjohnwu.superuser.ipc.RootService
 import rikka.shizuku.Shizuku
 import java.io.Closeable

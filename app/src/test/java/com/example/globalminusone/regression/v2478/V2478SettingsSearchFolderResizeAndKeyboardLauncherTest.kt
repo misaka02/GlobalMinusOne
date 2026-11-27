@@ -1,20 +1,20 @@
 package com.example.globalminusone.regression.v2478
 
-import com.example.globalminusone.data.AppKeyboardLauncherSpec
-import com.example.globalminusone.data.AppQuickSearchMatcher
+import com.example.globalminusone.data.policy.AppKeyboardLauncherSpec
+import com.example.globalminusone.data.policy.AppQuickSearchMatcher
 import com.example.globalminusone.data.ComponentItem
 import com.example.globalminusone.data.ComponentType
 import com.example.globalminusone.data.ContainerLayoutType
-import com.example.globalminusone.data.GRID_SPAN_FULL_ROW
+import com.example.globalminusone.data.policy.GRID_SPAN_FULL_ROW
 import com.example.globalminusone.data.GlobalMinusOneState
-import com.example.globalminusone.data.KeyboardCardLayout
+import com.example.globalminusone.data.policy.KeyboardCardLayout
 import com.example.globalminusone.data.PageConfig
 import com.example.globalminusone.data.PageLayoutType
-import com.example.globalminusone.data.PinyinIndexProvider
-import com.example.globalminusone.data.containerGridChildBounds
-import com.example.globalminusone.data.containerPopupColumns
-import com.example.globalminusone.data.defaultPageGridSpan
-import com.example.globalminusone.ui.panel.commitContainerGridChildResize
+import com.example.globalminusone.data.policy.PinyinIndexProvider
+import com.example.globalminusone.data.policy.containerGridChildBounds
+import com.example.globalminusone.data.policy.containerPopupColumns
+import com.example.globalminusone.data.policy.defaultPageGridSpan
+import com.example.globalminusone.ui.panel.gesture.commitContainerGridChildResize
 import com.example.globalminusone.ui.settings.SettingsSearchIndex
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
@@ -228,7 +228,7 @@ class V2478SettingsSearchFolderResizeAndKeyboardLauncherTest {
         assertEquals(spec, AppKeyboardLauncherSpec.fromIntentUri(encoded))
 
         val clampedSpec = AppKeyboardLauncherSpec(maxCandidates = 99)
-        assertEquals(16, AppKeyboardLauncherSpec.fromIntentUri(clampedSpec.encodeToIntentUri()).maxCandidates)
+        assertEquals(48, AppKeyboardLauncherSpec.fromIntentUri(clampedSpec.encodeToIntentUri()).maxCandidates)
         assertEquals(AppKeyboardLauncherSpec(), AppKeyboardLauncherSpec.fromIntentUri(""))
         assertEquals(AppKeyboardLauncherSpec(), AppKeyboardLauncherSpec.fromIntentUri("invalid://uri"))
 

@@ -532,10 +532,8 @@ internal fun BrowserNavigationButton(
 
 @Composable
 internal fun BrowserFindField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    requestHostInput: () -> Unit,
-    modifier: Modifier = Modifier
+    value: String, onValueChange: (String) -> Unit, requestHostInput: () -> Unit,
+    modifier: Modifier = Modifier, editorFocusRequester: androidx.compose.ui.focus.FocusRequester? = null
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -547,7 +545,8 @@ internal fun BrowserFindField(
         modifier,
         placeholder = "查找网页正文",
         keyboardType = androidx.compose.ui.text.input.KeyboardType.Text,
-        imeAction = ImeAction.Search
+        imeAction = ImeAction.Search,
+        editorFocusRequester = editorFocusRequester
     )
 }
 

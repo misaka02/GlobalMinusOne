@@ -5,6 +5,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.system.file.BrowserEntry
+import com.example.globalminusone.system.file.BrowserLocation
+import com.example.globalminusone.system.file.FileCategory
+import com.example.globalminusone.system.file.FileSearchPattern
+import com.example.globalminusone.system.file.searchFileTree
 
 class FileSearchModesTest {
     private val root = BrowserLocation("root", path = "/synthetic")

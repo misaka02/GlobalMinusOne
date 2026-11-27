@@ -3,6 +3,14 @@ package com.example.globalminusone
 import com.example.globalminusone.system.*
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.system.file.BrowserEntry
+import com.example.globalminusone.system.file.BrowserLocation
+import com.example.globalminusone.system.file.MAX_EDIT_TEXT_BYTES
+import com.example.globalminusone.system.file.decodeEditableText
+import com.example.globalminusone.system.file.editableTextBytes
+import com.example.globalminusone.system.file.entry
+import com.example.globalminusone.system.file.requireUnchangedText
+import com.example.globalminusone.system.file.supportsTextEditing
 
 class FileTextPolicyTest {
     @Test fun utf8RoundTripPreservesUnicodeAndEmptyTextAndRecognizesBom() {

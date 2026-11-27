@@ -3,6 +3,9 @@ package com.example.globalminusone.ui.panel
 import androidx.compose.ui.geometry.Offset
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.ui.panel.container.FolderDragOrder
+import com.example.globalminusone.ui.panel.container.FolderDragSlot
+import com.example.globalminusone.ui.panel.container.StableDragMotion
 
 class FolderDragStabilityTest {
     @Test fun movingTileAndScrollingCanvasCannotMoveAStationaryPhysicalPointer() {

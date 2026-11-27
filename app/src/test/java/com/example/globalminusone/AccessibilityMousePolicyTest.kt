@@ -1,6 +1,6 @@
 package com.example.globalminusone
 
-import com.example.globalminusone.service.AccessibilityMousePolicy
+import com.example.globalminusone.service.accessibility.AccessibilityMousePolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

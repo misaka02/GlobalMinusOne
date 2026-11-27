@@ -1,13 +1,14 @@
 package com.example.globalminusone.ui.panel
 
-import com.example.globalminusone.system.BrowserEntry
-import com.example.globalminusone.system.BrowserLocation
+import com.example.globalminusone.system.file.BrowserEntry
+import com.example.globalminusone.system.file.BrowserLocation
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.*
 import org.junit.Assert.*
 import org.junit.Test
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import com.example.globalminusone.ui.panel.file.FileBrowserDirectoryState
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class FileBrowserDirectoryOwnershipTest {

@@ -6,6 +6,7 @@ import android.appwidget.AppWidgetManager
 import android.graphics.BitmapFactory
 import android.content.SharedPreferences
 import android.net.Uri
+import com.example.globalminusone.data.GlobalMinusOneState
 import com.example.globalminusone.data.MinusOneRepository
 import com.example.globalminusone.data.WidgetHostContract
 import kotlinx.serialization.encodeToString
@@ -20,11 +21,13 @@ class NativeBackupStore(context: Context, private val repository: MinusOneReposi
     private val library = this.context.getSharedPreferences("independent_browser", Context.MODE_PRIVATE)
     private val settings = this.context.getSharedPreferences("independent_browser_prefs", Context.MODE_PRIVATE)
 
-    fun capture(): DecodedNativeBackup {
+    fun capture(): DecodedNativeBackup = captureScoped(BackupExportMode.FULL)
+
+    fun captureScoped(mode: BackupExportMode, selectedPageIds: Set<String> = emptySet()): DecodedNativeBackup {
         val corruptBackup = repository.ensureCorruptStateBackup()?.let {
             archiveCorruptStateRaw(File(context.filesDir, "native-backup-recovery"), it)
         }
-        val state = repository.state.value.copy(editMode = false, selectedComponentId = null)
+        val state = scopeStateForExport(repository.state.value, mode, selectedPageIds)
         NativeBackupCodec.validateState(state)
         val warnings = mutableListOf<String>()
         if (corruptBackup != null) warnings += "原配置损坏：本备份保存当前回退后的面板，不是损坏原配置的恢复结果。原文已校验保存至应用恢复目录 ${corruptBackup.name}，请保留该文件。"
@@ -57,15 +60,33 @@ class NativeBackupStore(context: Context, private val repository: MinusOneReposi
             }.onFailure { warnings += "图片 ${index + 1} 未打包：${it.message.orEmpty().take(180)}" }
         }
         warnings += "SAF 目录授权、权限、登录信息和系统小部件绑定不能迁移；恢复后需重新授权或绑定。"
-        warnings += "浏览器备份包含书签、历史和设置；不包含网页标签、Cookie、缓存或其它应用数据。"
-        return DecodedNativeBackup(NativeBackupPayload(state, snapshot(library), snapshot(settings), refs, warnings, installationId()), assets)
-            .also { NativeBackupCodec.validatePayload(it.payload) }
+        val includeBrowser = mode == BackupExportMode.FULL
+        if (includeBrowser) {
+            warnings += "浏览器备份包含书签、历史和设置；不包含网页标签、Cookie、缓存或其它应用数据。"
+        }
+        val summary = buildBackupSourceSummary(repository.state.value, mode)
+        return DecodedNativeBackup(
+            NativeBackupPayload(
+                state = state,
+                browserLibrary = if (includeBrowser) snapshot(library) else emptyMap(),
+                browserSettings = if (includeBrowser) snapshot(settings) else emptyMap(),
+                assets = refs,
+                warnings = warnings,
+                installationId = installationId(),
+                configurationOnly = mode == BackupExportMode.SETTINGS_ONLY,
+                exportSummary = summary
+            ),
+            assets
+        ).also { NativeBackupCodec.validatePayload(it.payload) }
     }
 
-    fun export(output: OutputStream): NativeBackupPayload = capture().let {
-        NativeBackupCodec.write(output, it)
-        it.payload
-    }
+    fun export(output: OutputStream): NativeBackupPayload = exportScoped(output, BackupExportMode.FULL)
+
+    fun exportScoped(output: OutputStream, mode: BackupExportMode, selectedPageIds: Set<String> = emptySet()): NativeBackupPayload =
+        captureScoped(mode, selectedPageIds).let {
+            NativeBackupCodec.write(output, it)
+            it.payload
+        }
 
     fun preview(input: InputStream): DecodedNativeBackup = NativeBackupCodec.readCompatible(input, snapshot(library), snapshot(settings))
 
@@ -75,6 +96,23 @@ class NativeBackupStore(context: Context, private val repository: MinusOneReposi
 
     /** Recovery archive is complete and closed before any replacement. Keep it on any error. */
     fun restore(backup: DecodedNativeBackup): File {
+        val settingsOnly = backup.payload.isSettingsOnlyExport()
+        return restoreSelective(
+            backup,
+            BackupImportSelection(
+                importThemeAndPanel = true,
+                importTriggersAndBall = true,
+                importBrowserData = !backup.payload.configurationOnly,
+                importProfiles = true,
+                selectedPageIds = if (settingsOnly) emptySet() else backup.payload.state.pages.map { it.id }.toSet(),
+                pageImportMode = if (settingsOnly) PageImportMode.APPEND else PageImportMode.REPLACE_ALL,
+                applySourcePanelGeometry = true,
+                restoreFullUserData = backup.payload.isFullBackupExport()
+            )
+        )
+    }
+
+    fun restoreSelective(backup: DecodedNativeBackup, selection: BackupImportSelection): File {
         check(!repository.state.value.advancedConfig.layoutLocked) { "请先解锁布局，再恢复备份" }
         check(!repository.state.value.editMode) { "请先保存或取消当前编辑，再恢复备份" }
         NativeBackupCodec.validatePayload(backup.payload)
@@ -100,30 +138,19 @@ class NativeBackupStore(context: Context, private val repository: MinusOneReposi
                 check(target.length() == bytes.size.toLong() && NativeBackupCodec.sha256(target.readBytes()) == NativeBackupCodec.sha256(bytes)) { "图片写入校验失败" }
                 Uri.fromFile(target).toString()
             }
-            val sameInstallation = backup.payload.installationId.isNotBlank() && backup.payload.installationId == installationId()
-            val ownWidgetIds = if (sameInstallation) runCatching {
-                AppWidgetHost(context, WidgetHostContract.HOST_ID).appWidgetIds.toSet()
-            }.getOrDefault(emptySet()) else emptySet()
-            val manager = AppWidgetManager.getInstance(context)
-            val state = NativeBackupCodec.verifiedWidgetBindings(NativeBackupCodec.mapImages(backup.payload.state) { ref ->
-                backup.payload.assets[ref]?.let { requireNotNull(replacements[it]) } ?: ref
-            }) { binding ->
-                binding.appWidgetId in ownWidgetIds && runCatching {
-                    val provider = manager.getAppWidgetInfo(binding.appWidgetId)?.provider
-                    provider != null && provider.packageName == binding.providerPackage && provider.className == binding.providerClass
-                }.getOrDefault(false)
-            }
+            val state = buildSafeMergedBackupState(backup, selection, replacements)
             NativeBackupCodec.validateState(state)
+            val restoreBrowser = selection.importBrowserData && !backup.payload.configurationOnly
             enteredTransaction = true
             repository.restoreNativeBackup(NativeBackupCodec.json.encodeToString(state), commitCompanion = {
-                if (!backup.payload.configurationOnly) {
+                if (restoreBrowser) {
                     check(replace(library, backup.payload.browserLibrary)) { "书签/历史写入失败" }
                     check(replace(settings, backup.payload.browserSettings)) { "浏览器设置写入失败" }
                 }
             }, rollbackCompanion = {
                 // Try both even if one fails. Failed disk commits can already have changed memory.
-                val libraryOk = backup.payload.configurationOnly || replace(library, oldLibrary)
-                val settingsOk = backup.payload.configurationOnly || replace(settings, oldSettings)
+                val libraryOk = !restoreBrowser || replace(library, oldLibrary)
+                val settingsOk = !restoreBrowser || replace(settings, oldSettings)
                 rollbackComplete = libraryOk && settingsOk
                 check(rollbackComplete) { "浏览器设置回滚失败" }
             })
@@ -134,6 +161,35 @@ class NativeBackupStore(context: Context, private val repository: MinusOneReposi
             if (!enteredTransaction) assetDir.deleteRecursively()
             throw IllegalStateException("恢复失败：${failure.message}。恢复前备份保留在 ${recovery.name}", failure)
         }
+    }
+
+    private fun buildSafeMergedBackupState(
+        backup: DecodedNativeBackup,
+        selection: BackupImportSelection,
+        replacements: Map<String, String>
+    ): GlobalMinusOneState {
+        val sameInstallation = backup.payload.installationId.isNotBlank() && backup.payload.installationId == installationId()
+        val ownWidgetIds = if (sameInstallation) runCatching {
+            AppWidgetHost(context, WidgetHostContract.HOST_ID).appWidgetIds.toSet()
+        }.getOrDefault(emptySet()) else emptySet()
+        val manager = AppWidgetManager.getInstance(context)
+        val mappedIncoming = NativeBackupCodec.verifiedWidgetBindings(
+            NativeBackupCodec.mapImages(backup.payload.state) { ref ->
+                backup.payload.assets[ref]?.let { requireNotNull(replacements[it]) } ?: ref
+            }
+        ) { binding ->
+            binding.appWidgetId in ownWidgetIds && runCatching {
+                val provider = manager.getAppWidgetInfo(binding.appWidgetId)?.provider
+                provider != null && provider.packageName == binding.providerPackage && provider.className == binding.providerClass
+            }.getOrDefault(false)
+        }
+        val safeIncoming = sanitizeExternalBackupShellCards(mappedIncoming)
+        val effectiveSelection = when {
+            backup.payload.isSettingsOnlyExport() -> selection.copy(selectedPageIds = emptySet(), restoreFullUserData = false)
+            !backup.payload.isFullBackupExport() -> selection.copy(restoreFullUserData = false)
+            else -> selection
+        }
+        return mergeSelectedBackupState(repository.state.value, safeIncoming, effectiveSelection)
     }
 
     private fun validateImage(bytes: ByteArray) {

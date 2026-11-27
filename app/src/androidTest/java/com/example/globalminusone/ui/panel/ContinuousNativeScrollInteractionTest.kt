@@ -23,6 +23,15 @@ import kotlinx.serialization.json.Json
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.GlobalMinusOneState
+import com.example.globalminusone.data.MinusOneRepository
+import com.example.globalminusone.data.PageConfig
+import com.example.globalminusone.ui.panel.editor.AddComponentModal
+import com.example.globalminusone.ui.panel.gesture.LocalPanelGestureOwnership
+import com.example.globalminusone.ui.panel.gesture.PanelGestureOwnership
+import com.example.globalminusone.ui.panel.gesture.ownPanelScrollGestures
 
 /** Actual production surfaces, with bounded size only. These tests require a device;
  * adding/compiling them does not establish that the R10 freeze was fixed on hardware. */

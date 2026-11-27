@@ -1,7 +1,7 @@
 package com.example.globalminusone.regression.v2420
 
-import com.example.globalminusone.service.TriggerGesturePolicy
-import com.example.globalminusone.service.TriggerSwipeDirection
+import com.example.globalminusone.service.overlay.TriggerGesturePolicy
+import com.example.globalminusone.service.overlay.TriggerSwipeDirection
 import org.junit.Assert.*
 import org.junit.Test
 

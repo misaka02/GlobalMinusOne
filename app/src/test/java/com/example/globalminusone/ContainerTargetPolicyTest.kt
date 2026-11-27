@@ -1,9 +1,13 @@
 package com.example.globalminusone
 
 import com.example.globalminusone.data.*
-import com.example.globalminusone.ui.panel.mutableContainerTarget
+import com.example.globalminusone.ui.panel.container.mutableContainerTarget
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.GlobalMinusOneState
+import com.example.globalminusone.data.PageConfig
 
 class ContainerTargetPolicyTest {
     @Test fun resolvesOnlyTheRequestedContainerOnTheRequestedPage() {

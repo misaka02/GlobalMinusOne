@@ -5,6 +5,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.example.globalminusone.service.overlay.extractNotificationVerificationCode
+import com.example.globalminusone.service.overlay.screenshotOrientationMatches
 
 class PlatformCapturePolicyTest {
     @Test fun verificationCodeNeedsItsOwnAdjacentLabel() {

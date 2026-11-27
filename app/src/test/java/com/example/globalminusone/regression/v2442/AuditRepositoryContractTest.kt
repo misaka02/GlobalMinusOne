@@ -5,6 +5,9 @@ import com.example.globalminusone.MemoryPreferences
 import com.example.globalminusone.data.*
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.FileBrowserRoot
+import com.example.globalminusone.data.MinusOneRepository
+import com.example.globalminusone.data.mergeGrantedFileRoot
 
 class AuditRepositoryContractTest {
     private class FailingPreferences(private val delegate: MemoryPreferences = MemoryPreferences()) : SharedPreferences by delegate {

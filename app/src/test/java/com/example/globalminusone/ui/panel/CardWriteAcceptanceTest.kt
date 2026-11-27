@@ -5,6 +5,25 @@ import com.example.globalminusone.MemoryPreferences
 import com.example.globalminusone.data.*
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.ClipboardClearResult
+import com.example.globalminusone.data.ClipboardRecord
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.GlobalMinusOneState
+import com.example.globalminusone.data.MinusOneRepository
+import com.example.globalminusone.data.PageConfig
+import com.example.globalminusone.data.QuickActionItem
+import com.example.globalminusone.ui.panel.editor.CardDestructiveAction
+import com.example.globalminusone.ui.panel.editor.CardDestructiveRequest
+import com.example.globalminusone.ui.panel.cards.ClipboardHistoryActions
+import com.example.globalminusone.ui.panel.editor.ConfirmationWriteResult
+import com.example.globalminusone.ui.panel.cards.cardLayoutActions
+import com.example.globalminusone.ui.panel.cards.cardLayoutSnapshot
+import com.example.globalminusone.ui.panel.cards.clearClipboardSelection
+import com.example.globalminusone.ui.panel.cards.clipboardHistoryActions
+import com.example.globalminusone.ui.panel.editor.confirmCardDestructiveAction
+import com.example.globalminusone.ui.panel.editor.resolveCardDestructiveTarget
+import com.example.globalminusone.ui.panel.container.saveLegacyContainerAction
 
 class CardWriteAcceptanceTest {
     private class FaultPreferences(private val delegate: MemoryPreferences = MemoryPreferences()) : SharedPreferences by delegate {

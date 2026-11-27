@@ -1,13 +1,13 @@
 package com.example.globalminusone.regression
 
-import com.example.globalminusone.system.BrowserEntry
-import com.example.globalminusone.system.BrowserLocation
-import com.example.globalminusone.ui.panel.FileWorkspaceSelection
-import com.example.globalminusone.ui.panel.FileWorkspaceTransferPlan
-import com.example.globalminusone.ui.panel.TransferClipboard
-import com.example.globalminusone.ui.panel.fileWorkspacePath
-import com.example.globalminusone.ui.panel.fileWorkspaceClipboardTitle
-import com.example.globalminusone.ui.panel.FileBrowserReturnRefreshState
+import com.example.globalminusone.system.file.BrowserEntry
+import com.example.globalminusone.system.file.BrowserLocation
+import com.example.globalminusone.ui.panel.file.FileWorkspaceSelection
+import com.example.globalminusone.ui.panel.file.FileWorkspaceTransferPlan
+import com.example.globalminusone.ui.panel.file.TransferClipboard
+import com.example.globalminusone.ui.panel.file.fileWorkspacePath
+import com.example.globalminusone.ui.panel.file.fileWorkspaceClipboardTitle
+import com.example.globalminusone.ui.panel.file.FileBrowserReturnRefreshState
 import org.junit.Assert.*
 import org.junit.Test
 

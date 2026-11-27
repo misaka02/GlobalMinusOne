@@ -2,6 +2,8 @@ package com.example.globalminusone.ui.panel
 
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.ui.panel.editor.dragEdgeVelocity
+import com.example.globalminusone.ui.panel.gesture.moveLinearPreview
 
 class NewInteractionPolicyTest {
     @Test fun addressBarAcceptsWebUrlsAndAddsASchemeToDomains() {

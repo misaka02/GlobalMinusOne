@@ -5,6 +5,25 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.example.globalminusone.data.policy.AppDrawerCardSpec
+import com.example.globalminusone.data.policy.AppKeyboardLauncherSpec
+import com.example.globalminusone.data.policy.FloatingPodStyleSpec
+import com.example.globalminusone.data.policy.GENERIC_CARD_POD_URI_PREFIX
+import com.example.globalminusone.data.policy.KeyboardCardLayout
+import com.example.globalminusone.data.policy.LauncherCardPresentationMode
+import com.example.globalminusone.data.policy.floatingPodSizeBoundsFor
+import com.example.globalminusone.data.policy.isFloatingPodDarkSurface
+import com.example.globalminusone.data.policy.isSingleIconLauncherItem
+import com.example.globalminusone.data.policy.mergeFloatingPodStyleParams
+import com.example.globalminusone.data.policy.parseCardPresentationMode
+import com.example.globalminusone.data.policy.parseFloatingPodStyle
+import com.example.globalminusone.data.policy.parseRgbHexColor
+import com.example.globalminusone.data.policy.resolveEffectivePodSizeDp
+import com.example.globalminusone.data.policy.resolveFloatingPodSurfaceArgb
+import com.example.globalminusone.data.policy.resolveFloatingPodTextArgb
+import com.example.globalminusone.data.policy.resolveKeyboardPodDimensions
+import com.example.globalminusone.data.policy.withCardPresentationMode
+import com.example.globalminusone.data.policy.withFloatingPodStyle
 
 class FloatingPodStyleSpecTest {
 
@@ -160,7 +179,7 @@ class FloatingPodStyleSpecTest {
             insideContainer = false,
             customPodWidthDp = 320
         )
-        assertEquals(204f, tinyHostDims.podWidthDp, 0.01f)
+        assertEquals(216f, tinyHostDims.podWidthDp, 0.01f)
     }
 
     @Test

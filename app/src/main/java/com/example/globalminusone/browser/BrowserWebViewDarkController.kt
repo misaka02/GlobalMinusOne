@@ -10,6 +10,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.compose.ui.graphics.Color
+import java.util.WeakHashMap
 
 /**
  * Supplies an explicit UI_MODE_NIGHT_YES / UI_MODE_NIGHT_NO Configuration to WebView so
@@ -65,7 +66,9 @@ internal enum class ReaderPaperTheme(val label: String, val bg: Color, val text:
 }
 
 internal object BrowserWebViewDarkController {
-    fun isCspFallbackActive(frame: FrameLayout?): Boolean = (frame?.tag as? Boolean) == true
+    private val cspFallbackActiveByFrame = WeakHashMap<FrameLayout, Boolean>()
+
+    fun isCspFallbackActive(frame: FrameLayout?): Boolean = frame != null && cspFallbackActiveByFrame[frame] == true
 
     fun setWebViewAlgorithmicDarkening(view: WebView?, allow: Boolean) {
         val target = view ?: return
@@ -93,8 +96,12 @@ internal object BrowserWebViewDarkController {
         sessionNightMode: Boolean
     ) {
         val container = frame ?: return
-        val changed = (container.tag as? Boolean) != active
-        container.tag = active
+        val changed = isCspFallbackActive(container) != active
+        if (active) {
+            cspFallbackActiveByFrame[container] = true
+        } else {
+            cspFallbackActiveByFrame.remove(container)
+        }
         // Mutually exclusive with Blink Algorithmic Darkening to prevent double-inverting #121212 back into light gray
         setWebViewAlgorithmicDarkening(view, allow = sessionNightMode && !active)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {

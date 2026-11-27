@@ -21,7 +21,8 @@ internal class PanelActions(
     val addToContainer: ((String) -> Unit)? = null,
     val openFileBrowser: () -> Unit = {},
     val openFileShortcut: (ComponentItem) -> Unit = {},
-    val selectImage: (ComponentItem) -> Unit = {}
+    val selectImage: (ComponentItem) -> Unit = {},
+    val openSubPanel: (String, androidx.compose.ui.geometry.Rect?) -> Unit = { _, _ -> }
 )
 
 internal val LocalPanelActions = staticCompositionLocalOf { PanelActions() }

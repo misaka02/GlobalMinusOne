@@ -1,6 +1,6 @@
 package com.example.globalminusone.regression.v2438
 
-import com.example.globalminusone.ui.panel.fileBrowserControlsHeightDp
+import com.example.globalminusone.ui.panel.file.fileBrowserControlsHeightDp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

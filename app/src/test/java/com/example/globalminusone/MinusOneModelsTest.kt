@@ -5,7 +5,7 @@ import com.example.globalminusone.data.ComponentCategory
 import com.example.globalminusone.data.ComponentItem
 import com.example.globalminusone.data.ComponentType
 import com.example.globalminusone.data.ConfigProfile
-import com.example.globalminusone.data.DefaultPresets
+import com.example.globalminusone.data.policy.DefaultPresets
 import com.example.globalminusone.data.GestureAction
 import com.example.globalminusone.data.GlobalMinusOneState
 import com.example.globalminusone.data.PageConfig

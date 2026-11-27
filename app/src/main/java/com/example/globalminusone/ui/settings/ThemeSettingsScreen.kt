@@ -123,13 +123,12 @@ internal fun ThemeSettingsScreen(
 ) {
     val state by repository.state.collectAsState()
     val themeConfig = state.themeConfig
-    var showAnimationDialog by remember { mutableStateOf(false) }
 
-    var expandedGroup by rememberSaveable { mutableStateOf(initialExpandedGroup) }
+    var expandedGroups by rememberExpandedGroups(initialExpandedGroup)
     val listState = rememberLazyListState()
     LaunchedEffect(initialExpandedGroup, jumpNonce) {
         if (initialExpandedGroup.isNotBlank()) {
-            expandedGroup = initialExpandedGroup
+            expandedGroups = setOf(initialExpandedGroup)
             val idx = when (initialExpandedGroup) {
                 "设置页面配色" -> 1
                 "亮色 / 暗色模式与一键预设" -> 2
@@ -159,12 +158,12 @@ internal fun ThemeSettingsScreen(
                 .background(MaterialTheme.colorScheme.background),
             contentPadding = PaddingValues(bottom = 36.dp)
         ) {
-            item { SettingsHint("选择一个分类展开设置，其他分类会自动收起。") }
+            item { SettingsHint("可同时展开多个分类，点击标题即可展开或收起。") }
 
             settingsGroup(
                 title = "设置页面配色", summary = if (state.advancedConfig.settingsFollowSystemTheme) "当前跟随系统 · 仅影响设置界面" else "当前手动配色 · 仅影响设置界面",
-                expanded = expandedGroup == "设置页面配色",
-                onToggle = { expandedGroup = if (expandedGroup == "设置页面配色") "" else "设置页面配色" }
+                expanded = "设置页面配色" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "设置页面配色") }
             ) {
                 item {
                     PreferenceSwitchItem(
@@ -192,8 +191,8 @@ internal fun ThemeSettingsScreen(
 
             settingsGroup(
                 title = "面板配色与预设", summary = "${if (themeConfig.followSystemDark) "跟随系统" else if (themeConfig.isDarkMode) "暗色卡片" else "亮色卡片"} · 常用视觉预设",
-                expanded = expandedGroup == "亮色 / 暗色模式与一键预设",
-                onToggle = { expandedGroup = if (expandedGroup == "亮色 / 暗色模式与一键预设") "" else "亮色 / 暗色模式与一键预设" }
+                expanded = "亮色 / 暗色模式与一键预设" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "亮色 / 暗色模式与一键预设") }
             ) {
 
                 item {
@@ -279,8 +278,8 @@ internal fun ThemeSettingsScreen(
 
             settingsGroup(
                 title = "背景遮罩", summary = "遮罩亮暗、透明度与模糊",
-                expanded = expandedGroup == "背景遮罩",
-                onToggle = { expandedGroup = if (expandedGroup == "背景遮罩") "" else "背景遮罩" }
+                expanded = "背景遮罩" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "背景遮罩") }
             ) {
                 item {
                     val isDarkMask = (themeConfig.maskColorHex and 0x00FFFFFFL) < 0x808080L
@@ -323,8 +322,8 @@ internal fun ThemeSettingsScreen(
 
             settingsGroup(
                 title = "面板底框", summary = "底框配色、显示模式与透明度",
-                expanded = expandedGroup == "面板底框",
-                onToggle = { expandedGroup = if (expandedGroup == "面板底框") "" else "面板底框" }
+                expanded = "面板底框" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "面板底框") }
             ) {
                 item {
                     Column(
@@ -395,8 +394,8 @@ internal fun ThemeSettingsScreen(
 
             settingsGroup(
                 title = "面板尺寸与位置", summary = "面板宽高、位置与屏幕边距",
-                expanded = expandedGroup == "面板尺寸与位置",
-                onToggle = { expandedGroup = if (expandedGroup == "面板尺寸与位置") "" else "面板尺寸与位置" }
+                expanded = "面板尺寸与位置" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "面板尺寸与位置") }
             ) {
                 item {
                     PreferenceSliderItem(
@@ -441,8 +440,10 @@ internal fun ThemeSettingsScreen(
 
             settingsGroup(
                 title = "卡片外观", summary = "默认底色、圆角与透明度；长按卡片可独立微调",
-                expanded = expandedGroup == "卡片外观与透明度 (长按单个卡片可独立微调)",
-                onToggle = { expandedGroup = if (expandedGroup == "卡片外观与透明度 (长按单个卡片可独立微调)") "" else "卡片外观与透明度 (长按单个卡片可独立微调)" }
+                expanded = "卡片外观与透明度 (长按单个卡片可独立微调)" in expandedGroups,
+                onToggle = {
+                    expandedGroups = toggleExpandedGroup(expandedGroups, "卡片外观与透明度 (长按单个卡片可独立微调)")
+                }
             ) {
 
                 item {
@@ -531,8 +532,8 @@ internal fun ThemeSettingsScreen(
 
             settingsGroup(
                 title = "文字与标题", summary = "正文与标题的配色和透明度",
-                expanded = expandedGroup == "文字与标题颜色及不透明度",
-                onToggle = { expandedGroup = if (expandedGroup == "文字与标题颜色及不透明度") "" else "文字与标题颜色及不透明度" }
+                expanded = "文字与标题颜色及不透明度" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "文字与标题颜色及不透明度") }
             ) {
 
                 item {
@@ -598,29 +599,12 @@ internal fun ThemeSettingsScreen(
             }
 
             settingsGroup(
-                title = "动画与其它", summary = "呼出动画、时长与异形屏适配",
-                expanded = expandedGroup == "动画与其它",
-                onToggle = { expandedGroup = if (expandedGroup == "动画与其它") "" else "动画与其它" }
+                title = "动画与其它", summary = "全局默认与各模块细分动画、异形屏适配",
+                expanded = "动画与其它" in expandedGroups,
+                onToggle = { expandedGroups = toggleExpandedGroup(expandedGroups, "动画与其它") }
             ) {
-
                 item {
-                    PreferenceItem(
-                        title = "呼出动画",
-                        summary = themeConfig.pageTransition.label,
-                        onClick = { showAnimationDialog = true }
-                    )
-                }
-
-                item {
-                    PreferenceSliderItem(
-                        title = "动画时间",
-                        value = themeConfig.animationDurationMs.coerceIn(0, 800).toFloat(),
-                        valueRange = 0f..800f,
-                        valueText = if (themeConfig.animationDurationMs <= 0) "0ms (无动画)" else "${themeConfig.animationDurationMs}ms",
-                        onValueChange = { ms ->
-                            repository.updateThemeConfig { it.copy(animationDurationMs = ms.toInt()) }
-                        }
-                    )
+                    AnimationSettingsSection(themeConfig = themeConfig, repository = repository)
                 }
 
                 item {
@@ -634,22 +618,6 @@ internal fun ThemeSettingsScreen(
                     )
                 }
             }
-
-
         }
-    }
-
-    if (showAnimationDialog) {
-        val transitions = PageTransition.values()
-        SingleChoiceDialog(
-            title = "呼出动画",
-            options = transitions.map { it.label },
-            selectedIndex = transitions.indexOf(themeConfig.pageTransition),
-            onSelect = { idx ->
-                repository.updateThemeConfig { it.copy(pageTransition = transitions[idx]) }
-                showAnimationDialog = false
-            },
-            onDismiss = { showAnimationDialog = false }
-        )
     }
 }

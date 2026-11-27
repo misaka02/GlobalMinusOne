@@ -2,28 +2,28 @@ package com.example.globalminusone.regression.v2488
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.IntRect
-import com.example.globalminusone.data.ComponentInsertionOperations
+import com.example.globalminusone.data.operations.ComponentInsertionOperations
 import com.example.globalminusone.data.ComponentItem
 import com.example.globalminusone.data.ComponentType
 import com.example.globalminusone.data.ContainerLayoutType
-import com.example.globalminusone.data.FloatingPodHorizontalAnchor
-import com.example.globalminusone.data.LauncherCardPresentationMode
+import com.example.globalminusone.data.policy.FloatingPodHorizontalAnchor
+import com.example.globalminusone.data.policy.LauncherCardPresentationMode
 import com.example.globalminusone.data.PageConfig
 import com.example.globalminusone.data.PageLayoutType
 import com.example.globalminusone.data.TriggerSide
-import com.example.globalminusone.data.arrangePageGridComponents
-import com.example.globalminusone.data.resolveKeyboardCardColors
-import com.example.globalminusone.data.withCardPresentationMode
+import com.example.globalminusone.data.policy.arrangePageGridComponents
+import com.example.globalminusone.data.policy.resolveKeyboardCardColors
+import com.example.globalminusone.data.policy.withCardPresentationMode
 import com.example.globalminusone.screenassistant.AccessibilityScreenSnapshot
 import com.example.globalminusone.screenassistant.ExtractedSubImageCandidate
 import com.example.globalminusone.screenassistant.NativeOcrRunner
 import com.example.globalminusone.screenassistant.ScreenOcrCoordinator
 import com.example.globalminusone.screenassistant.ScreenTextBlock
 import com.example.globalminusone.ui.AppIcons as Icons
-import com.example.globalminusone.ui.panel.CardColorPalette
-import com.example.globalminusone.ui.panel.FloatingPodKind
-import com.example.globalminusone.ui.panel.FunctionalPodOverlayState
-import com.example.globalminusone.ui.panel.KeyboardCandidateOverlayHost
+import com.example.globalminusone.ui.panel.cards.CardColorPalette
+import com.example.globalminusone.ui.panel.keyboard.FloatingPodKind
+import com.example.globalminusone.ui.panel.keyboard.FunctionalPodOverlayState
+import com.example.globalminusone.ui.panel.keyboard.KeyboardCandidateOverlayHost
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -236,8 +236,8 @@ class V2488PopOutTapGridInsertBilibiliExtractAndFastOcrTest {
             return if (fromApp.isFile) fromApp else File("app/$rel")
         }
 
-        val functionalPodSrc = resolveSourceFile("src/main/java/com/example/globalminusone/ui/panel/FloatingFunctionalPod.kt").readText()
-        val hostPodSrc = resolveSourceFile("src/main/java/com/example/globalminusone/ui/panel/FloatingPodOverlayHost.kt").readText()
+        val functionalPodSrc = resolveSourceFile("src/main/java/com/example/globalminusone/ui/panel/keyboard/FloatingFunctionalPod.kt").readText()
+        val hostPodSrc = resolveSourceFile("src/main/java/com/example/globalminusone/ui/panel/keyboard/FloatingPodOverlayHost.kt").readText()
         assertFalse(
             "FloatingFunctionalPod must not isolate pod publishing inside SideEffect",
             functionalPodSrc.contains("SideEffect {")
@@ -251,14 +251,14 @@ class V2488PopOutTapGridInsertBilibiliExtractAndFastOcrTest {
             hostPodSrc.contains("BoxWithConstraints(")
         )
 
-        val gridSrc = resolveSourceFile("src/main/java/com/example/globalminusone/ui/panel/GridLayoutPage.kt").readText()
+        val gridSrc = resolveSourceFile("src/main/java/com/example/globalminusone/ui/panel/layout/GridLayoutPage.kt").readText()
         assertTrue(
             "GridLayoutPage appTarget must include single-icon pop-out launchers",
             gridSrc.contains("isAppContextMenuCardType(savedItem.type) ||") &&
                 gridSrc.contains("isSingleIconLauncherItem(savedItem)")
         )
 
-        val nestedSrc = resolveSourceFile("src/main/java/com/example/globalminusone/ui/panel/NestedContainerComponents.kt").readText()
+        val nestedSrc = resolveSourceFile("src/main/java/com/example/globalminusone/ui/panel/container/NestedContainerComponents.kt").readText()
         assertTrue(
             "NestedContainerComponents appTarget must include single-icon pop-out launchers",
             nestedSrc.contains("isAppContextMenuCardType(child.type) ||") &&

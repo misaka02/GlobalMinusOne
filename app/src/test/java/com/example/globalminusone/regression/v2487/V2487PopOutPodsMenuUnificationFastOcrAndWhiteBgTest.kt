@@ -2,18 +2,18 @@ package com.example.globalminusone.regression.v2487
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.IntRect
-import com.example.globalminusone.data.AppDrawerCardSpec
+import com.example.globalminusone.data.policy.AppDrawerCardSpec
 import com.example.globalminusone.data.ComponentItem
 import com.example.globalminusone.data.ComponentType
-import com.example.globalminusone.data.FloatingPodHorizontalAnchor
-import com.example.globalminusone.data.LauncherCardPresentationMode
-import com.example.globalminusone.data.POPOUT_CAPABLE_CARD_TYPES
+import com.example.globalminusone.data.policy.FloatingPodHorizontalAnchor
+import com.example.globalminusone.data.policy.LauncherCardPresentationMode
+import com.example.globalminusone.data.policy.POPOUT_CAPABLE_CARD_TYPES
 import com.example.globalminusone.data.TriggerSide
-import com.example.globalminusone.data.computeFloatingPodPlacement
-import com.example.globalminusone.data.isSingleIconLauncherItem
-import com.example.globalminusone.data.parseCardPresentationMode
-import com.example.globalminusone.data.resolveKeyboardCardColors
-import com.example.globalminusone.data.withCardPresentationMode
+import com.example.globalminusone.data.policy.computeFloatingPodPlacement
+import com.example.globalminusone.data.policy.isSingleIconLauncherItem
+import com.example.globalminusone.data.policy.parseCardPresentationMode
+import com.example.globalminusone.data.policy.resolveKeyboardCardColors
+import com.example.globalminusone.data.policy.withCardPresentationMode
 import com.example.globalminusone.screenassistant.AccessibilityScreenSnapshot
 import com.example.globalminusone.screenassistant.ExtractedSubImageCandidate
 import com.example.globalminusone.screenassistant.NativeOcrRunner
@@ -24,11 +24,11 @@ import com.example.globalminusone.screenassistant.ScreenTextSelectionPolicy
 import com.example.globalminusone.service.ScreenAssistantMode
 import com.example.globalminusone.service.screenassistant.ScreenAssistantPresentation
 import com.example.globalminusone.ui.AppIcons as Icons
-import com.example.globalminusone.ui.panel.CardColorPalette
-import com.example.globalminusone.ui.panel.FloatingPodKind
-import com.example.globalminusone.ui.panel.FunctionalPodOverlayState
-import com.example.globalminusone.ui.panel.KeyboardCandidateOverlayHost
-import com.example.globalminusone.ui.panel.KeyboardCandidateOverlayState
+import com.example.globalminusone.ui.panel.cards.CardColorPalette
+import com.example.globalminusone.ui.panel.keyboard.FloatingPodKind
+import com.example.globalminusone.ui.panel.keyboard.FunctionalPodOverlayState
+import com.example.globalminusone.ui.panel.keyboard.KeyboardCandidateOverlayHost
+import com.example.globalminusone.ui.panel.keyboard.KeyboardCandidateOverlayState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull

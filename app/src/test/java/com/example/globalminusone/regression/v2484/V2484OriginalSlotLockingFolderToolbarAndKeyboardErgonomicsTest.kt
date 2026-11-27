@@ -1,10 +1,10 @@
 package com.example.globalminusone.regression.v2484
 
 import com.example.globalminusone.data.TriggerSide
-import com.example.globalminusone.data.resolveEffectiveKeyTap
-import com.example.globalminusone.data.resolveKeyboardSideErgonomics
-import com.example.globalminusone.ui.panel.folderToolbarDensity
-import com.example.globalminusone.ui.panel.shouldShowFolderHeaderDualActionRow
+import com.example.globalminusone.data.policy.resolveEffectiveKeyTap
+import com.example.globalminusone.data.policy.resolveKeyboardSideErgonomics
+import com.example.globalminusone.ui.panel.container.folderToolbarDensity
+import com.example.globalminusone.ui.panel.container.shouldShowFolderHeaderDualActionRow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull

@@ -4,6 +4,12 @@ import com.example.globalminusone.MemoryPreferences
 import com.example.globalminusone.data.*
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.data.BoundWidgetInfo
+import com.example.globalminusone.data.ComponentItem
+import com.example.globalminusone.data.ComponentType
+import com.example.globalminusone.data.ContainerLayoutType
+import com.example.globalminusone.data.MinusOneRepository
+import com.example.globalminusone.data.operations.findComponent
 
 class FreeFolderInsertionTest {
     @Test fun addingAboveInsideFreeFolderUsesCoordinatesForMenuFileAndWidgetPaths() {

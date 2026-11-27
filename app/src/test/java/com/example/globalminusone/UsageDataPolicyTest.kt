@@ -3,6 +3,8 @@ package com.example.globalminusone
 import com.example.globalminusone.ui.panel.*
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.ui.panel.cards.AppUsageTransition
+import com.example.globalminusone.ui.panel.cards.summarizeAppUsage
 
 class UsageDataPolicyTest {
     @Test fun clipsMidnightAndIncludesCurrentlyForegroundApp() {
@@ -25,5 +27,15 @@ class UsageDataPolicyTest {
         val result = summarizeAppUsage(emptyList(), 100, 200)
         assertEquals(0L, result.foregroundMillis)
         assertTrue(result.recentPackages.isEmpty())
+    }
+    @Test fun multiActivitySameAppNeitherSplitsNorDoubleCountsTime() {
+        val result = summarizeAppUsage(listOf(
+            AppUsageTransition("a", 100, true, "Main"),
+            AppUsageTransition("a", 120, true, "Detail"),
+            AppUsageTransition("a", 130, false, "Main"),
+            AppUsageTransition("a", 170, false, "Detail")
+        ), start = 100, end = 200)
+        assertEquals(70L, result.foregroundMillis)
+        assertEquals(listOf("a"), result.recentPackages)
     }
 }

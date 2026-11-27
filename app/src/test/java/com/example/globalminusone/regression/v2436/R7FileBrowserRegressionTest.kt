@@ -2,12 +2,20 @@ package com.example.globalminusone.regression.v2436
 
 import com.example.globalminusone.data.FileBrowserSortOrder
 import com.example.globalminusone.system.*
-import com.example.globalminusone.ui.panel.FileWorkspacePathPolicy
-import com.example.globalminusone.ui.panel.fileBrowserControlsHeightDp
-import com.example.globalminusone.ui.panel.resolveFileWorkspacePath
+import com.example.globalminusone.ui.panel.file.FileWorkspacePathPolicy
+import com.example.globalminusone.ui.panel.file.fileBrowserControlsHeightDp
+import com.example.globalminusone.ui.panel.file.resolveFileWorkspacePath
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.system.file.BrowserEntry
+import com.example.globalminusone.system.file.BrowserLocation
+import com.example.globalminusone.system.file.FileCategory
+import com.example.globalminusone.system.file.entry
+import com.example.globalminusone.system.file.filterBrowserEntries
+import com.example.globalminusone.system.file.location
+import com.example.globalminusone.system.file.searchFileTree
+import com.example.globalminusone.system.file.sortBrowserEntries
 
 class R7FileBrowserRegressionTest {
     private val root = BrowserLocation("shared", path = "/storage/emulated/0")

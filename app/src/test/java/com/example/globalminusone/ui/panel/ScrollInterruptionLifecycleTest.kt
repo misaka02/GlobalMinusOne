@@ -6,6 +6,8 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.test.*
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.globalminusone.ui.panel.gesture.AncestorScrollInterruption
+import com.example.globalminusone.ui.panel.gesture.PanelScrollTarget
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ScrollInterruptionLifecycleTest {

@@ -1,8 +1,8 @@
 package com.example.globalminusone
 
-import com.example.globalminusone.ui.panel.appIndexAtPosition
-import com.example.globalminusone.ui.panel.appIndexAtRailPosition
-import com.example.globalminusone.ui.panel.appIndexRailTicks
+import com.example.globalminusone.ui.panel.cards.appIndexAtPosition
+import com.example.globalminusone.ui.panel.cards.appIndexAtRailPosition
+import com.example.globalminusone.ui.panel.cards.appIndexRailTicks
 import org.junit.Assert.*
 import org.junit.Test
 
